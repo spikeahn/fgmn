@@ -130,9 +130,11 @@ export default function ChecklistPage() {
 
       if (data) {
         const map = new Map<string, CompletionInfo>()
-        for (const row of data as Array<{ checklist_id: string; checked_at: string; staffs: { name: string } | null }>) {
+        for (const row of data as Array<{ checklist_id: string; checked_at: string; staffs: unknown }>) {
           const t = new Date(row.checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
-          map.set(row.checklist_id, { staffName: row.staffs?.name ?? '', time: t })
+          const staffs = row.staffs as { name: string } | { name: string }[] | null
+          const staffName = Array.isArray(staffs) ? (staffs[0]?.name ?? '') : (staffs?.name ?? '')
+          map.set(row.checklist_id, { staffName, time: t })
         }
         setLogs(map)
       }
