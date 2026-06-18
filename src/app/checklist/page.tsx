@@ -129,12 +129,29 @@ export default function ChecklistPage() {
         .eq('is_completed', true)
 
       if (data) {
-        const map = new Map<string, CompletionInfo>()
-        for (const row of data as Array<{ checklist_id: string; checked_at: string; staffs: unknown }>) {
-          const t = new Date(row.checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
-          const staffs = row.staffs as { name: string } | { name: string }[] | null
-          const staffName = Array.isArray(staffs) ? (staffs[0]?.name ?? '') : (staffs?.name ?? '')
-          map.set(row.checklist_id, { staffName, time: t })
+        const map = new Map<string, CompletionInfo>();
+        
+        // 1. unknown을 사용하여 타입스크립트 에러를 우회하고 우리가 원하는 타입으로 정의합니다.
+        type LogRow = {
+          checklist_id: string;
+          checked_at: string;
+          staffs: { name: string } | { name: string }[] | null;
+        };
+
+        for (const row of data as unknown as LogRow[]) {
+          const t = new Date(row.checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+          
+          // 2. staffs가 배열인지 단일 객체인지 확인하여 이름을 안전하게 추출합니다.
+          let staffName = '';
+          if (Array.isArray(row.staffs)) {
+            // 배열인 경우 첫 번째 항목의 이름을 가져옵니다.
+            staffName = row.staffs[0]?.name ?? '';
+          } else if (row.staffs) {
+            // 단일 객체인 경우 바로 이름을 가져옵니다.
+            staffName = row.staffs.name ?? '';
+          }
+
+          map.set(row.checklist_id, { staffName, time: t });
         }
         setLogs(map)
       }
