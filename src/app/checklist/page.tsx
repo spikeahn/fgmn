@@ -4,6 +4,8 @@ import { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAdmin } from '@/contexts/AdminContext'
 import type { ChecklistTab } from '@/types/database'
+import { StaffModal } from '@/components/StaffModal'
+import type { StaffItem } from '@/components/StaffModal'
 
 const PAGE_SIZE = 5
 const WEEKDAYS  = ['월', '화', '수', '목', '금', '토', '일']
@@ -22,7 +24,7 @@ interface LocalItem {
   imageDataUrl?: string
 }
 
-interface LocalStaff { id: string; name: string; hourly_wage: number; is_active: boolean }
+type LocalStaff = StaffItem
 
 // ── 날짜 유틸 ─────────────────────────────────────────────
 
@@ -328,12 +330,12 @@ export default function ChecklistPage() {
     if (staff.id.startsWith('new-')) {
       const { data } = await supabase
         .from('staffs')
-        .insert({ name: staff.name, hourly_wage: staff.hourly_wage, is_active: true })
+        .insert({ name: staff.name, hourly_wage: staff.hourly_wage, is_active: true, color_index: staff.color_index })
         .select()
         .single()
       if (data) setStaffList(prev => [...prev, data as LocalStaff])
     } else {
-      await supabase.from('staffs').update({ name: staff.name, hourly_wage: staff.hourly_wage }).eq('id', staff.id)
+      await supabase.from('staffs').update({ name: staff.name, hourly_wage: staff.hourly_wage, color_index: staff.color_index }).eq('id', staff.id)
       setStaffList(prev => prev.map(s => s.id === staff.id ? { ...s, ...staff } : s))
     }
     setEditingStaff(null)
@@ -604,7 +606,14 @@ export default function ChecklistPage() {
       )}
 
       {showStaffMgr && (
-        <StaffModal staffList={staffList} editingStaff={editingStaff} setEditingStaff={setEditingStaff} onSave={saveStaff} onToggleActive={toggleStaffActive} onClose={() => { setShowStaffMgr(false); setEditingStaff(null) }} />
+        <StaffModal
+          staffList={staffList}
+          editingStaff={editingStaff}
+          setEditingStaff={s => setEditingStaff(s as LocalStaff | 'new' | null)}
+          onSave={saveStaff}
+          onToggleActive={toggleStaffActive}
+          onClose={() => { setShowStaffMgr(false); setEditingStaff(null) }}
+        />
       )}
     </main>
   )
@@ -675,74 +684,3 @@ function ItemEditModal({ item, defaultTab, onSave, onClose }: {
   )
 }
 
-// ── 직원 관리 모달 ────────────────────────────────────────
-
-function StaffModal({ staffList, editingStaff, setEditingStaff, onSave, onToggleActive, onClose }: {
-  staffList: LocalStaff[]
-  editingStaff: LocalStaff | 'new' | null
-  setEditingStaff: (s: LocalStaff | 'new' | null) => void
-  onSave: (s: LocalStaff) => void
-  onToggleActive: (id: string) => void
-  onClose: () => void
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center" onClick={onClose}>
-      <div className="w-full max-w-md rounded-t-3xl bg-white px-6 pb-8 pt-6 shadow-2xl sm:rounded-3xl" onClick={e => e.stopPropagation()}>
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-extrabold text-stone-800">직원 관리</h2>
-          <button onClick={onClose} className="rounded-xl p-2 text-stone-400 hover:bg-stone-100"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
-        </div>
-        {editingStaff !== null ? (
-          <StaffEditForm staff={editingStaff === 'new' ? null : editingStaff} onSave={onSave} onCancel={() => setEditingStaff(null)} />
-        ) : (
-          <div className="space-y-2">
-            {staffList.map(s => (
-              <div key={s.id} className={`flex items-center gap-3 rounded-2xl border p-4 ${s.is_active ? 'border-stone-200 bg-white' : 'border-stone-100 bg-stone-50'}`}>
-                <div className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${s.is_active ? 'bg-emerald-400' : 'bg-stone-300'}`} />
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-semibold ${s.is_active ? 'text-stone-800' : 'text-stone-400'}`}>{s.name}</p>
-                  <p className="text-xs text-stone-400">₩{s.hourly_wage.toLocaleString()} / 시간</p>
-                </div>
-                <button onClick={() => onToggleActive(s.id)} className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${s.is_active ? 'border border-stone-200 text-stone-500 hover:bg-stone-50' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>{s.is_active ? '숨김' : '활성화'}</button>
-                <button onClick={() => setEditingStaff(s)} className="rounded-xl border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-600 hover:bg-stone-50">수정</button>
-              </div>
-            ))}
-            <button onClick={() => setEditingStaff('new')} className="mt-2 w-full rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 py-4 text-sm font-semibold text-amber-600 hover:bg-amber-50 active:scale-[0.99]">+ 직원 추가</button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function StaffEditForm({ staff, onSave, onCancel }: { staff: LocalStaff | null; onSave: (s: LocalStaff) => void; onCancel: () => void }) {
-  const [name, setName] = useState(staff?.name ?? '')
-  const [wage, setWage] = useState(String(staff?.hourly_wage ?? ''))
-
-  function handleSave() {
-    const wageNum = Number(wage.replace(/,/g, ''))
-    if (!name.trim() || isNaN(wageNum) || wageNum <= 0) return
-    onSave({ id: staff?.id ?? `new-${Date.now()}`, name: name.trim(), hourly_wage: wageNum, is_active: staff?.is_active ?? true })
-  }
-
-  return (
-    <div>
-      <h3 className="mb-4 text-sm font-bold text-stone-600">{staff ? '직원 정보 수정' : '새 직원 추가'}</h3>
-      <div className="mb-4">
-        <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-stone-400">이름 *</label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="예) 김지수" className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
-      </div>
-      <div className="mb-6">
-        <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-stone-400">시급 (원) *</label>
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-stone-400">₩</span>
-          <input type="number" min={0} value={wage} onChange={e => setWage(e.target.value)} placeholder="10000" className="w-full rounded-xl border border-stone-200 bg-stone-50 py-3 pl-8 pr-4 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
-        </div>
-      </div>
-      <div className="flex gap-3">
-        <button onClick={onCancel} className="flex-1 rounded-xl border border-stone-200 py-3 text-sm font-semibold text-stone-500 hover:bg-stone-50">취소</button>
-        <button onClick={handleSave} disabled={!name.trim() || !wage} className="flex-1 rounded-xl bg-amber-400 py-3 text-sm font-extrabold text-white hover:bg-amber-500 disabled:opacity-40">{staff ? '저장' : '추가'}</button>
-      </div>
-    </div>
-  )
-}

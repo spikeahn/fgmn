@@ -7,6 +7,9 @@ import { Calendar, dateFnsLocalizer } from 'react-big-calendar'
 import { format, parse, startOfWeek, getDay, addDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { supabase } from '@/lib/supabase'
+import { useAdmin } from '@/contexts/AdminContext'
+import { StaffModal, COLOR_PALETTE } from '@/components/StaffModal'
+import type { StaffItem } from '@/components/StaffModal'
 import type { ShiftType } from '@/types/database'
 
 // ── Localizer ────────────────────────────────────────────
@@ -27,16 +30,6 @@ const DEFAULT_TIMES: Record<ShiftType, { start: string; end: string }> = {
   '마감': { start: '16:00', end: '22:00' },
 }
 
-// 직원별 블록 컬러 (최대 7명 순환)
-const STAFF_COLORS = [
-  { bg: '#fef3c7', text: '#92400e', dot: '#d97706' },  // amber
-  { bg: '#dbeafe', text: '#1e40af', dot: '#3b82f6' },  // blue
-  { bg: '#d1fae5', text: '#065f46', dot: '#10b981' },  // emerald
-  { bg: '#ede9fe', text: '#5b21b6', dot: '#8b5cf6' },  // violet
-  { bg: '#fce7f3', text: '#9d174d', dot: '#ec4899' },  // pink
-  { bg: '#ffedd5', text: '#9a3412', dot: '#f97316' },  // orange
-  { bg: '#e0f2fe', text: '#0c4a6e', dot: '#0ea5e9' },  // sky
-]
 
 const SHIFT_BADGE: Record<ShiftType, string> = {
   '오픈': 'bg-amber-100  text-amber-800  ring-amber-300',
@@ -81,7 +74,7 @@ type ShiftDefaults = Record<ShiftType, { start: string; end: string }>
 
 // ── 헬퍼 ─────────────────────────────────────────────────
 
-interface StaffBasic { id: string; name: string }
+type StaffBasic = StaffItem
 
 function makeToCalEvent(staffs: StaffBasic[]) {
   return (s: LocalSchedule): CalEvent => {
@@ -128,12 +121,15 @@ function CalEventCard({ event }: { event: CalEvent }) {
 // ── 메인 페이지 ──────────────────────────────────────────
 
 export default function SchedulePage() {
+  const { isAdmin } = useAdmin()
   const [staffs,        setStaffs]        = useState<StaffBasic[]>([])
   const [schedules,     setSchedules]     = useState<LocalSchedule[]>([])
   const [loading,       setLoading]       = useState(true)
   const [calDate,       setCalDate]       = useState(new Date())
   const [modal,         setModal]         = useState<Modal>(null)
   const [showSettings,  setShowSettings]  = useState(false)
+  const [showStaffMgr,  setShowStaffMgr]  = useState(false)
+  const [editingStaff,  setEditingStaff]  = useState<StaffBasic | 'new' | null>(null)
   const [shiftDefaults, setShiftDefaults] = useState<ShiftDefaults>(() =>
     JSON.parse(JSON.stringify(DEFAULT_TIMES))
   )
@@ -153,7 +149,7 @@ export default function SchedulePage() {
       const year = new Date().getFullYear()
 
       const [{ data: staffData }, { data: schData }] = await Promise.all([
-        supabase.from('staffs').select('id, name').eq('is_active', true).order('name'),
+        supabase.from('staffs').select('id, name, hourly_wage, is_active, color_index').order('name'),
         supabase.from('schedules').select('*')
           .gte('date', `${year}-01-01`).lte('date', `${year}-12-31`),
       ])
@@ -192,15 +188,43 @@ export default function SchedulePage() {
     [schedules, toCalEvent],
   )
 
-  // 직원 순서 기반 컬러 맵 (staffs 로드 순서 고정)
+  // 직원별 컬러 맵 (color_index 우선, 없으면 순서 기반)
   const staffColorMap = useMemo(() => {
-    const map = new Map<string, typeof STAFF_COLORS[0]>()
-    staffs.forEach((s, i) => map.set(s.id, STAFF_COLORS[i % STAFF_COLORS.length]))
+    const map = new Map<string, typeof COLOR_PALETTE[0]>()
+    staffs.forEach((s, i) => {
+      const idx = s.color_index !== null && s.color_index !== undefined
+        ? s.color_index
+        : i
+      map.set(s.id, COLOR_PALETTE[idx % COLOR_PALETTE.length])
+    })
     return map
   }, [staffs])
 
+  // 직원 관리
+  async function saveStaff(staff: StaffBasic) {
+    if (staff.id.startsWith('new-')) {
+      const { data } = await supabase
+        .from('staffs')
+        .insert({ name: staff.name, hourly_wage: staff.hourly_wage, is_active: true, color_index: staff.color_index })
+        .select()
+        .single()
+      if (data) setStaffs(prev => [...prev, data as StaffBasic])
+    } else {
+      await supabase.from('staffs').update({ name: staff.name, hourly_wage: staff.hourly_wage, color_index: staff.color_index }).eq('id', staff.id)
+      setStaffs(prev => prev.map(s => s.id === staff.id ? { ...s, ...staff } : s))
+    }
+    setEditingStaff(null)
+  }
+
+  async function toggleStaffActive(id: string) {
+    const s = staffs.find(s => s.id === id)
+    if (!s) return
+    await supabase.from('staffs').update({ is_active: !s.is_active }).eq('id', id)
+    setStaffs(prev => prev.map(s => s.id === id ? { ...s, is_active: !s.is_active } : s))
+  }
+
   const eventPropGetter = useCallback((event: CalEvent) => {
-    const c = staffColorMap.get(event.resource.staffId) ?? STAFF_COLORS[0]
+    const c = staffColorMap.get(event.resource.staffId) ?? COLOR_PALETTE[0]
     return { style: { backgroundColor: c.bg, color: c.text } }
   }, [staffColorMap])
 
@@ -348,6 +372,15 @@ export default function SchedulePage() {
           <h1 className="text-3xl font-bold tracking-tight text-stone-800">근무표</h1>
 
           <div className="flex items-center gap-2">
+            {/* 직원 관리 (관리자 전용) */}
+            {isAdmin && (
+              <button
+                onClick={() => setShowStaffMgr(true)}
+                className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-600 shadow-sm hover:bg-stone-50 active:scale-95"
+              >
+                직원 관리
+              </button>
+            )}
             {/* 주 이동 */}
             <button
               onClick={() => setCalDate(d => addDays(d, -7))}
@@ -463,7 +496,7 @@ export default function SchedulePage() {
         {/* ── 직원 범례 ── */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {staffs.map((staff, i) => {
-            const c = STAFF_COLORS[i % STAFF_COLORS.length]
+            const c = COLOR_PALETTE[i % COLOR_PALETTE.length]
             return (
               <span
                 key={staff.id}
@@ -510,7 +543,7 @@ export default function SchedulePage() {
           </div>
           <div className="grid grid-cols-2 divide-x divide-y divide-stone-100 sm:grid-cols-4 lg:grid-cols-7">
             {weekStats.map(({ staff, hours, count }, i) => {
-              const c = STAFF_COLORS[i % STAFF_COLORS.length]
+              const c = COLOR_PALETTE[i % COLOR_PALETTE.length]
               return (
                 <div key={staff.id} className="flex flex-col items-center gap-1 px-3 py-4">
                   <span
@@ -535,6 +568,18 @@ export default function SchedulePage() {
         </div>
 
       </div>
+
+      {/* ── 직원 관리 모달 ── */}
+      {showStaffMgr && (
+        <StaffModal
+          staffList={staffs}
+          editingStaff={editingStaff}
+          setEditingStaff={s => setEditingStaff(s as StaffBasic | 'new' | null)}
+          onSave={saveStaff}
+          onToggleActive={toggleStaffActive}
+          onClose={() => { setShowStaffMgr(false); setEditingStaff(null) }}
+        />
+      )}
 
       {/* ── 등록 / 수정 모달 ── */}
       {modal && (
