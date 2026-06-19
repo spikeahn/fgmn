@@ -256,6 +256,91 @@ function timeToHours(start: string, end: string): number {
   return Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 60 * 10) / 10
 }
 
+// ── CSV 파싱 ────────────────────────────────────────────
+
+interface ParsedRow {
+  date:          string
+  staffId:       string
+  staffName:     string
+  startTime:     string
+  endTime:       string
+  shiftType:     ShiftType
+  recordedHours: number
+}
+
+interface ParseError {
+  line: number
+  raw:  string
+  msg:  string
+}
+
+function normalizeTime(t: string): string {
+  const [h, m = '00'] = t.split(':')
+  return `${String(Number(h)).padStart(2, '0')}:${m.padStart(2, '0')}`
+}
+
+function inferShiftType(start: string): ShiftType {
+  return start < '11:00' ? '오픈' : start < '14:00' ? '미들' : '마감'
+}
+
+function parseScheduleCSV(
+  text: string,
+  staffs: StaffBasic[],
+): { rows: ParsedRow[]; errors: ParseError[] } {
+  const rows: ParsedRow[] = []
+  const errors: ParseError[] = []
+
+  text.split('\n').forEach((raw, i) => {
+    const trimmed = raw.trim()
+    if (!trimmed || trimmed.startsWith('#')) return
+
+    const cols = trimmed.split(/\s+/)
+    if (cols.length < 4) {
+      errors.push({ line: i + 1, raw, msg: '컬럼 부족 (날짜 이름 시작 종료 필요)' })
+      return
+    }
+
+    const [dateCol, nameCol, startCol, endCol] = cols
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateCol)) {
+      errors.push({ line: i + 1, raw, msg: `날짜 형식 오류: ${dateCol}` })
+      return
+    }
+
+    const staff = staffs.find(s => s.name === nameCol)
+    if (!staff) {
+      errors.push({ line: i + 1, raw, msg: `직원을 찾을 수 없음: ${nameCol}` })
+      return
+    }
+
+    let startTime: string, endTime: string
+    try {
+      startTime = normalizeTime(startCol)
+      endTime   = normalizeTime(endCol)
+    } catch {
+      errors.push({ line: i + 1, raw, msg: '시간 형식 오류' })
+      return
+    }
+
+    if (startTime >= endTime) {
+      errors.push({ line: i + 1, raw, msg: '종료 시간이 시작 시간보다 빨라야 합니다' })
+      return
+    }
+
+    rows.push({
+      date:          dateCol,
+      staffId:       staff.id,
+      staffName:     staff.name,
+      startTime,
+      endTime,
+      shiftType:     inferShiftType(startTime),
+      recordedHours: timeToHours(startTime, endTime),
+    })
+  })
+
+  return { rows, errors }
+}
+
 function getWeekLabel(date: Date): string {
   const start = startOfWeek(date, { weekStartsOn: 1 })
   const end   = addDays(start, 6)
@@ -302,6 +387,14 @@ export default function SchedulePage() {
     endTime:   DEFAULT_TIMES['오픈'].end,
     note:      '',
   })
+
+  const [showImport,     setShowImport]     = useState(false)
+  const [showBulkDelete, setShowBulkDelete] = useState(false)
+  const [importText,     setImportText]     = useState('')
+  const [importLoading,  setImportLoading]  = useState(false)
+  const [bulkFrom,       setBulkFrom]       = useState('')
+  const [bulkTo,         setBulkTo]         = useState('')
+  const [bulkLoading,    setBulkLoading]    = useState(false)
 
   // ── Supabase 로드 ─────────────────────────────────────────
 
@@ -361,6 +454,18 @@ export default function SchedulePage() {
     })
     return map
   }, [staffs])
+
+  const importResult = useMemo(
+    () => parseScheduleCSV(importText, staffs),
+    [importText, staffs],
+  )
+
+  const bulkDeleteCount = useMemo(
+    () => (bulkFrom && bulkTo)
+      ? schedules.filter(s => s.date >= bulkFrom && s.date <= bulkTo).length
+      : 0,
+    [schedules, bulkFrom, bulkTo],
+  )
 
   // 직원 관리
   async function saveStaff(staff: StaffBasic) {
@@ -485,6 +590,51 @@ export default function SchedulePage() {
     setModal(null)
   }
 
+  async function handleCSVImport() {
+    if (!importResult.rows.length) return
+    setImportLoading(true)
+    const payload = importResult.rows.map(r => ({
+      staff_id:       r.staffId,
+      date:           r.date,
+      shift_type:     r.shiftType,
+      start_time:     r.startTime,
+      end_time:       r.endTime,
+      recorded_hours: r.recordedHours,
+      note:           '',
+    }))
+    const { data } = await supabase.from('schedules').insert(payload).select()
+    if (data) {
+      const inserted = data as Array<{
+        id: string; staff_id: string; date: string
+        shift_type: string; note: string | null
+      }>
+      const newRows: LocalSchedule[] = inserted.map((row, i) => ({
+        id:        row.id,
+        staffId:   row.staff_id,
+        date:      row.date,
+        shiftType: row.shift_type as ShiftType,
+        startTime: importResult.rows[i].startTime,
+        endTime:   importResult.rows[i].endTime,
+        note:      row.note ?? '',
+      }))
+      setSchedules(prev => [...prev, ...newRows])
+    }
+    setImportLoading(false)
+    setShowImport(false)
+    setImportText('')
+  }
+
+  async function handleBulkDelete() {
+    if (!bulkFrom || !bulkTo || bulkDeleteCount === 0) return
+    setBulkLoading(true)
+    await supabase.from('schedules').delete().gte('date', bulkFrom).lte('date', bulkTo)
+    setSchedules(prev => prev.filter(s => s.date < bulkFrom || s.date > bulkTo))
+    setBulkLoading(false)
+    setShowBulkDelete(false)
+    setBulkFrom('')
+    setBulkTo('')
+  }
+
   // ── 시간 유효성 ─────────────────────────────────────────
 
   const timeError = form.startTime >= form.endTime
@@ -558,33 +708,47 @@ export default function SchedulePage() {
         {/* ── 상단 네비게이션 ── */}
         <div className="mb-4 space-y-2">
 
-          {/* 1행: 제목 + 뷰 토글 + 직원관리 */}
+          {/* 1행: 제목 + 뷰 토글 */}
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-stone-800">근무표</h1>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-xl bg-stone-100 p-1">
-                {(['week', 'month'] as const).map(v => (
-                  <button
-                    key={v}
-                    onClick={() => setView(v)}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-bold transition-all ${
-                      view === v ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
-                    }`}
-                  >
-                    {v === 'week' ? '주간' : '월간'}
-                  </button>
-                ))}
-              </div>
-              {isAdmin && (
+            <div className="flex rounded-xl bg-stone-100 p-1">
+              {(['week', 'month'] as const).map(v => (
                 <button
-                  onClick={() => setShowStaffMgr(true)}
-                  className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-600 shadow-sm hover:bg-stone-50 active:scale-95"
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-bold transition-all ${
+                    view === v ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
+                  }`}
                 >
-                  직원 관리
+                  {v === 'week' ? '주간' : '월간'}
                 </button>
-              )}
+              ))}
             </div>
           </div>
+
+          {/* 관리자 버튼 행 */}
+          {isAdmin && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setShowStaffMgr(true)}
+                className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-600 shadow-sm hover:bg-stone-50 active:scale-95"
+              >
+                직원 관리
+              </button>
+              <button
+                onClick={() => { setImportText(''); setShowImport(true) }}
+                className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-600 shadow-sm hover:bg-stone-50 active:scale-95"
+              >
+                CSV 가져오기
+              </button>
+              <button
+                onClick={() => setShowBulkDelete(true)}
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-100 active:scale-95"
+              >
+                일정 삭제
+              </button>
+            </div>
+          )}
 
           {/* 2행: 이동 + 날짜 레이블 + 이번주/달 + 시간설정 */}
           <div className="flex items-center gap-2">
@@ -779,6 +943,153 @@ export default function SchedulePage() {
           onToggleActive={toggleStaffActive}
           onClose={() => { setShowStaffMgr(false); setEditingStaff(null) }}
         />
+      )}
+
+      {/* ── CSV 가져오기 모달 ── */}
+      {showImport && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={() => setShowImport(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-stone-100 px-6 pb-4 pt-6">
+                <div>
+                  <h2 className="text-lg font-bold text-stone-800">CSV 가져오기</h2>
+                  <p className="mt-0.5 text-xs text-stone-400">날짜 이름 시작시간 종료시간 순서 (탭·공백 구분)</p>
+                </div>
+                <button onClick={() => setShowImport(false)} className="rounded-xl p-2 text-stone-400 hover:bg-stone-100">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="px-6 py-4">
+                <textarea
+                  value={importText}
+                  onChange={e => setImportText(e.target.value)}
+                  rows={6}
+                  placeholder={"2026-06-15\t카렌\t9:30\t16:00\n2026-06-15\t준식\t12:00\t18:00"}
+                  className="w-full resize-none rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 font-mono text-sm text-stone-700 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+
+              {importText.trim() && (
+                <div className="flex-1 space-y-1 overflow-y-auto px-6 pb-4">
+                  {importResult.rows.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs">
+                      <span className="font-semibold text-emerald-700">{r.date}</span>
+                      <span className="text-emerald-600">{r.staffName}</span>
+                      <span className="text-emerald-500">{r.startTime}–{r.endTime}</span>
+                      <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${SHIFT_BADGE[r.shiftType]}`}>
+                        {r.shiftType}
+                      </span>
+                    </div>
+                  ))}
+                  {importResult.errors.map((e, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs">
+                      <span className="font-semibold text-red-500">줄 {e.line}</span>
+                      <span className="truncate text-red-400">{e.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 border-t border-stone-100 px-6 py-4">
+                <span className="text-xs text-stone-400">
+                  유효 <span className="font-bold text-emerald-600">{importResult.rows.length}</span>건
+                  {importResult.errors.length > 0 && (
+                    <span> · 오류 <span className="font-bold text-red-500">{importResult.errors.length}</span>건</span>
+                  )}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowImport(false)}
+                    className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-50"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={handleCSVImport}
+                    disabled={importResult.rows.length === 0 || importLoading}
+                    className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {importLoading ? '가져오는 중...' : `${importResult.rows.length}건 가져오기`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── 일정 일괄 삭제 모달 ── */}
+      {showBulkDelete && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={() => setShowBulkDelete(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="w-full max-w-sm rounded-2xl bg-white shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-stone-100 px-6 pb-4 pt-6">
+                <h2 className="text-lg font-bold text-stone-800">일정 일괄 삭제</h2>
+                <button onClick={() => setShowBulkDelete(false)} className="rounded-xl p-2 text-stone-400 hover:bg-stone-100">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-4 px-6 py-5">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-stone-400">시작 날짜</label>
+                  <input
+                    type="date"
+                    value={bulkFrom}
+                    onChange={e => setBulkFrom(e.target.value)}
+                    className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-medium text-stone-700 focus:outline-none focus:ring-2 focus:ring-red-300"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-stone-400">종료 날짜</label>
+                  <input
+                    type="date"
+                    value={bulkTo}
+                    min={bulkFrom}
+                    onChange={e => setBulkTo(e.target.value)}
+                    className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-medium text-stone-700 focus:outline-none focus:ring-2 focus:ring-red-300"
+                  />
+                </div>
+                {bulkFrom && bulkTo && (
+                  <div className={`rounded-xl px-4 py-3 text-sm ${bulkDeleteCount > 0 ? 'bg-red-50 text-red-700' : 'bg-stone-50 text-stone-500'}`}>
+                    {bulkDeleteCount > 0
+                      ? <><span className="font-bold">{bulkDeleteCount}건</span>의 스케줄이 삭제됩니다.</>
+                      : '해당 기간에 스케줄이 없습니다.'}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 px-6 pb-6">
+                <button
+                  onClick={() => { setShowBulkDelete(false); setBulkFrom(''); setBulkTo('') }}
+                  className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleteCount === 0 || bulkLoading || !bulkFrom || !bulkTo}
+                  className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-bold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {bulkLoading ? '삭제 중...' : `${bulkDeleteCount}건 삭제`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── 등록 / 수정 모달 ── */}

@@ -21,6 +21,7 @@ interface LocalItem {
   title: string
   description: string | null
   is_active: boolean
+  start_date: string | null
   imageDataUrl?: string
 }
 
@@ -186,9 +187,12 @@ export default function ChecklistPage() {
   const selectedStaff = staffList.find(s => s.id === selectedStaffId)
 
   const tabItems = useMemo(() =>
-    items.filter(i => i.tab === activeTab && i.is_active)
-         .sort((a, b) => a.order - b.order),
-    [items, activeTab]
+    items.filter(i =>
+      i.tab === activeTab &&
+      i.is_active &&
+      (i.start_date === null || i.start_date <= selectedDate)
+    ).sort((a, b) => a.order - b.order),
+    [items, activeTab, selectedDate]
   )
   const totalPages = Math.max(1, Math.ceil(tabItems.length / PAGE_SIZE))
   const pageItems  = tabItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -310,7 +314,7 @@ export default function ChecklistPage() {
       // INSERT
       const { data } = await supabase
         .from('checklists')
-        .insert({ tab: item.tab, order: item.order, title: item.title, description: item.description, is_active: true })
+        .insert({ tab: item.tab, order: item.order, title: item.title, description: item.description, is_active: true, start_date: today })
         .select()
         .single()
       if (data) setItems(prev => [...prev, data as LocalItem])
@@ -642,7 +646,7 @@ function ItemEditModal({ item, defaultTab, onSave, onClose }: {
 
   function handleSave() {
     if (!title.trim()) return
-    onSave({ id: item?.id ?? `new-${Date.now()}`, tab, order: item?.order ?? 999, title: title.trim(), description: description.trim() || null, is_active: true, imageDataUrl: imgUrl })
+    onSave({ id: item?.id ?? `new-${Date.now()}`, tab, order: item?.order ?? 999, title: title.trim(), description: description.trim() || null, is_active: true, start_date: item?.start_date ?? null, imageDataUrl: imgUrl })
   }
 
   return (
