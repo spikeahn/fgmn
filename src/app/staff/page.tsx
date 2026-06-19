@@ -297,6 +297,29 @@ export default function StaffPage() {
                   </Field>
                 </div>
 
+                {/* 컬러 */}
+                <Field label="캘린더 컬러">
+                  <div className="flex flex-wrap gap-2">
+                    {COLOR_PALETTE.map((c, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, color_index: i }))}
+                        className="relative h-8 w-8 rounded-full transition-all active:scale-90"
+                        style={{ background: c.dot }}
+                      >
+                        {(form.color_index ?? 0) === i && (
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <svg className="h-4 w-4 text-white drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
                 {/* 보건증 + 활성화 */}
                 <div className="flex gap-6">
                   <label className="flex cursor-pointer items-center gap-2.5">
