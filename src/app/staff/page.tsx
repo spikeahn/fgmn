@@ -49,6 +49,7 @@ export default function StaffPage() {
   const [loading,   setLoading]   = useState(true)
   const [editing,   setEditing]   = useState<StaffDetail | 'new' | null>(null)
   const [saving,    setSaving]    = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // 폼 상태
   const [form, setForm] = useState<Omit<StaffDetail, 'id'>>(EMPTY)
@@ -89,6 +90,7 @@ export default function StaffPage() {
   async function handleSave() {
     if (!form.name.trim()) return
     setSaving(true)
+    setSaveError(null)
     const payload = {
       name:               form.name.trim(),
       hourly_wage:        Number(form.hourly_wage) || 0,
@@ -104,10 +106,12 @@ export default function StaffPage() {
     }
 
     if (editing === 'new') {
-      const { data } = await supabase.from('staffs').insert(payload).select().single()
+      const { data, error } = await supabase.from('staffs').insert(payload).select().single()
+      if (error) { setSaveError(error.message); setSaving(false); return }
       if (data) setStaffList(prev => [...prev, data as StaffDetail].sort((a, b) => a.name.localeCompare(b.name)))
     } else if (editing) {
-      await supabase.from('staffs').update(payload).eq('id', (editing as StaffDetail).id)
+      const { error } = await supabase.from('staffs').update(payload).eq('id', (editing as StaffDetail).id)
+      if (error) { setSaveError(error.message); setSaving(false); return }
       setStaffList(prev => prev.map(s => s.id === (editing as StaffDetail).id ? { ...s, ...payload } : s))
     }
     setSaving(false)
@@ -309,6 +313,13 @@ export default function StaffPage() {
                   </label>
                 </div>
               </div>
+
+              {/* 에러 */}
+              {saveError && (
+                <div className="mx-6 mb-2 rounded-xl bg-red-50 px-4 py-3 text-xs font-medium text-red-600">
+                  오류: {saveError}
+                </div>
+              )}
 
               {/* 버튼 */}
               <div className="flex gap-2 border-t border-stone-100 px-6 py-4">

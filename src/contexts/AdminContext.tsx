@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 
 interface AdminCtx {
   isAdmin: boolean
@@ -10,10 +10,26 @@ interface AdminCtx {
 
 const AdminContext = createContext<AdminCtx>({ isAdmin: false, enter: () => {}, exit: () => {} })
 
+const KEY = 'fgmn_admin'
+
 export function AdminProvider({ children }: { children: ReactNode }) {
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return sessionStorage.getItem(KEY) === '1'
+  })
+
+  const enter = useCallback(() => {
+    sessionStorage.setItem(KEY, '1')
+    setIsAdmin(true)
+  }, [])
+
+  const exit = useCallback(() => {
+    sessionStorage.removeItem(KEY)
+    setIsAdmin(false)
+  }, [])
+
   return (
-    <AdminContext.Provider value={{ isAdmin, enter: () => setIsAdmin(true), exit: () => setIsAdmin(false) }}>
+    <AdminContext.Provider value={{ isAdmin, enter, exit }}>
       {children}
     </AdminContext.Provider>
   )
