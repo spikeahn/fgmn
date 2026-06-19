@@ -83,7 +83,7 @@ function makeToCalEvent(staffs: StaffBasic[]) {
     const staffName = staffs.find(st => st.id === s.staffId)?.name ?? '(미지정)'
     return {
       id:    s.id,
-      title: `${staffName} · ${s.shiftType}`,
+      title: staffName,
       start: new Date(`${s.date}T${s.startTime}:00`),
       end:   new Date(`${s.date}T${s.endTime}:00`),
       resource: s,
@@ -240,11 +240,11 @@ export default function SchedulePage() {
       }).select().single()
 
       if (data) {
-        const row = data as { id: string; staff_id: string; date: string; shift_type: string; start_time: string; end_time: string; note: string | null }
+        const row = data as { id: string; staff_id: string; date: string; shift_type: string; note: string | null }
         setSchedules(prev => [...prev, {
           id: row.id, staffId: row.staff_id, date: row.date,
           shiftType: row.shift_type as ShiftType,
-          startTime: row.start_time, endTime: row.end_time, note: row.note ?? '',
+          startTime: form.startTime, endTime: form.endTime, note: row.note ?? '',
         }])
       }
     } else {
