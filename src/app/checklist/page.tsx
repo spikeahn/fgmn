@@ -92,8 +92,8 @@ export default function ChecklistPage() {
   const touchStartX = useRef<number | null>(null)
   const touchStartY = useRef<number | null>(null)
 
-  // 관리자 로그아웃 시 편집 모드 해제
-  useEffect(() => { if (!isAdmin) { setEditMode(false); setShowStaffMgr(false) } }, [isAdmin])
+  // 관리자 로그아웃 시 직원 관리 닫기
+  useEffect(() => { if (!isAdmin) setShowStaffMgr(false) }, [isAdmin])
 
   // ── 초기 로드: 직원 + 체크리스트 ───────────────────────
 
@@ -486,11 +486,9 @@ export default function ChecklistPage() {
               <button key={t} onClick={() => switchTab(t)} className={`rounded-lg px-6 py-2 text-sm font-bold transition-all duration-200 ${activeTab === t ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>{t}</button>
             ))}
           </div>
-          {isAdmin && (
-            <button onClick={() => { setEditMode(e => !e); setDeletingId(null) }} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${editMode ? 'bg-amber-500 text-white shadow-sm' : 'border border-stone-200 bg-white text-stone-500 hover:bg-stone-50'}`}>
-              {editMode ? '편집 완료' : '편집 모드'}
-            </button>
-          )}
+          <button onClick={() => { setEditMode(e => !e); setDeletingId(null) }} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${editMode ? 'bg-amber-500 text-white shadow-sm' : 'border border-stone-200 bg-white text-stone-500 hover:bg-stone-50'}`}>
+            {editMode ? '편집 완료' : '편집 모드'}
+          </button>
         </div>
 
         {/* 진행률 바 */}

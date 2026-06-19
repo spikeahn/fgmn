@@ -4,64 +4,47 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 import { useAdmin } from '@/contexts/AdminContext'
 
-const NAV_ITEMS = [
+const NAV_BASE = [
   { label: '체크리스트', href: '/checklist' },
   { label: '근무시간표',  href: '/schedule'  },
+]
+const NAV_ADMIN = [
+  ...NAV_BASE,
+  { label: '근무리포트', href: '/report' },
 ]
 
 const SECRET_TAP = 5
 const ADMIN_PW   = '1111'
-const REPORT_PW  = '1111'
 
 export default function TopNav() {
-  const pathname    = usePathname()
-  const router      = useRouter()
+  const pathname = usePathname()
+  const router   = useRouter()
   const { isAdmin, enter: enterAdmin, exit: exitAdmin } = useAdmin()
 
-  // 로고 탭 (관리자 모드)
-  const logoTapCount = useRef(0)
-  const logoTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tapCount = useRef(0)
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 우측 탭 (급여 리포트)
-  const reportTapCount = useRef(0)
-  const reportTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showModal, setShowModal] = useState(false)
+  const [pw,        setPw]        = useState('')
+  const [shake,     setShake]     = useState(false)
 
-  // 모달 상태
-  const [modal,  setModal]  = useState<'admin' | 'report' | null>(null)
-  const [pw,     setPw]     = useState('')
-  const [shake,  setShake]  = useState(false)
-
-  function handleLogoTap() {
-    if (isAdmin) return  // 이미 관리자면 무시
-    logoTapCount.current += 1
-    if (logoTimer.current) clearTimeout(logoTimer.current)
-    if (logoTapCount.current >= SECRET_TAP) {
-      logoTapCount.current = 0
-      setModal('admin')
+  function handleRightTap() {
+    if (isAdmin) return
+    tapCount.current += 1
+    if (tapTimer.current) clearTimeout(tapTimer.current)
+    if (tapCount.current >= SECRET_TAP) {
+      tapCount.current = 0
+      setShowModal(true)
       setPw('')
     } else {
-      logoTimer.current = setTimeout(() => { logoTapCount.current = 0 }, 1500)
-    }
-  }
-
-  function handleReportTap() {
-    reportTapCount.current += 1
-    if (reportTimer.current) clearTimeout(reportTimer.current)
-    if (reportTapCount.current >= SECRET_TAP) {
-      reportTapCount.current = 0
-      setModal('report')
-      setPw('')
-    } else {
-      reportTimer.current = setTimeout(() => { reportTapCount.current = 0 }, 1500)
+      tapTimer.current = setTimeout(() => { tapCount.current = 0 }, 1500)
     }
   }
 
   function handleSubmit() {
-    const correct = modal === 'admin' ? ADMIN_PW : REPORT_PW
-    if (pw === correct) {
-      if (modal === 'admin') enterAdmin()
-      else router.push('/report')
-      setModal(null)
+    if (pw === ADMIN_PW) {
+      enterAdmin()
+      setShowModal(false)
       setPw('')
     } else {
       setShake(true)
@@ -70,18 +53,17 @@ export default function TopNav() {
     }
   }
 
+  const navItems = isAdmin ? NAV_ADMIN : NAV_BASE
+
   return (
     <>
-      {/* ── 네비게이션 바 ──────────────────────────────── */}
+      {/* ── 네비게이션 바 ─────────────────────────────── */}
       <nav className="sticky top-0 z-40 flex h-14 items-center border-b border-stone-200 bg-white/90 px-4 backdrop-blur-sm">
 
-        {/* 로고 — 5탭 → 관리자 모드 */}
-        <button
-          onPointerDown={handleLogoTap}
-          className="mr-4 select-none text-base font-black tracking-tight text-stone-800 active:opacity-60"
-        >
+        {/* 로고 */}
+        <span className="mr-4 select-none text-base font-black tracking-tight text-stone-800">
           FGMN
-        </button>
+        </span>
 
         {/* 관리자 뱃지 */}
         {isAdmin && (
@@ -93,7 +75,7 @@ export default function TopNav() {
 
         {/* 페이지 탭 */}
         <div className="flex gap-1">
-          {NAV_ITEMS.map(item => {
+          {navItems.map(item => {
             const active = pathname.startsWith(item.href)
             return (
               <button
@@ -121,30 +103,26 @@ export default function TopNav() {
           </button>
         )}
 
-        {/* 우측 비밀 탭 존 (급여 리포트) */}
+        {/* 우측 비밀 탭 (5회 → 관리자 로그인) */}
         <div
           className="ml-auto h-10 w-16 cursor-default select-none"
-          onPointerDown={handleReportTap}
+          onPointerDown={handleRightTap}
           aria-hidden
         />
       </nav>
 
-      {/* ── 비밀번호 모달 ─────────────────────────────── */}
-      {modal && (
+      {/* ── 관리자 비밀번호 모달 ──────────────────────── */}
+      {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={() => { setModal(null); setPw('') }}
+          onClick={() => { setShowModal(false); setPw('') }}
         >
           <div
             className={`w-72 rounded-2xl bg-white p-6 shadow-2xl ${shake ? 'animate-shake' : ''}`}
             onClick={e => e.stopPropagation()}
           >
-            <p className="mb-1 text-center text-base font-extrabold text-stone-800">
-              {modal === 'admin' ? '관리자 인증' : '급여 리포트'}
-            </p>
-            <p className="mb-5 text-center text-xs text-stone-400">
-              {modal === 'admin' ? '관리자 비밀번호를 입력하세요' : '비밀번호를 입력하세요'}
-            </p>
+            <p className="mb-1 text-center text-base font-extrabold text-stone-800">관리자 인증</p>
+            <p className="mb-5 text-center text-xs text-stone-400">관리자 비밀번호를 입력하세요</p>
 
             <input
               type="password"
@@ -160,7 +138,7 @@ export default function TopNav() {
 
             <div className="mt-4 flex gap-2">
               <button
-                onClick={() => { setModal(null); setPw('') }}
+                onClick={() => { setShowModal(false); setPw('') }}
                 className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm font-semibold text-stone-500 hover:bg-stone-50"
               >
                 취소
