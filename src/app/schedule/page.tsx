@@ -73,28 +73,32 @@ interface FormState {
 type ShiftDefaults = Record<ShiftType, { start: string; end: string }>
 
 // ── 월간 그리드 상수 / 헬퍼 ──────────────────────────────
+// 레이아웃: column = 시간(07~22), row = 날짜(1일~말일)
 
-const HOUR_H    = 28   // px per hour
-const G_START   = 7    // 07:00
-const G_END     = 23   // 23:00
-const G_HOURS   = G_END - G_START   // 16 슬롯
-const DAY_W     = 46   // px per day column
+const G_START    = 7     // 07:00
+const G_END      = 23    // 23:00
+const G_HOURS    = G_END - G_START   // 16 슬롯
+
+const T_COL_W    = 52    // px per 1-hour column
+const DATE_LBL_W = 72    // px for date label column
+const EVT_H      = 18    // px height of each event bar
 
 function pad2(n: number) { return String(n).padStart(2, '0') }
-function timeTop(t: string) {
+
+// 이벤트 가로 시작 위치 (G_START 기준)
+function timeLeft(t: string): number {
   const [h, m] = t.split(':').map(Number)
-  return (h - G_START + m / 60) * HOUR_H
+  return (h - G_START + m / 60) * T_COL_W
 }
-function timePx(s: string, e: string) {
+// 이벤트 가로 너비 (시간 → px)
+function timePxW(s: string, e: string): number {
   const [sh, sm] = s.split(':').map(Number)
   const [eh, em] = e.split(':').map(Number)
-  return ((eh + em / 60) - (sh + sm / 60)) * HOUR_H
+  return ((eh + em / 60) - (sh + sm / 60)) * T_COL_W
 }
 
 // ── 월간 그리드 뷰 ────────────────────────────────────────
-// 레이아웃: 행(row) = 시간(위→아래), 열(column) = 날짜(왼→오른)
-
-const GUTTER_W = 56   // 시간 레이블 열 너비
+// 레이아웃: row = 날짜(위→아래), column = 시간(왼→오른)
 
 function MonthGridView({
   schedules, staffs, staffColorMap, year, month, onEdit, onCreate,
@@ -109,11 +113,9 @@ function MonthGridView({
 }) {
   const daysInMonth = new Date(year, month, 0).getDate()
   const monthPfx    = `${year}-${pad2(month)}`
-  // 07:00 ~ 22:00 → 16개 행 (각 행 높이 = HOUR_H, 마지막 선 = 23:00)
-  const hours   = Array.from({ length: G_HOURS }, (_, i) => G_START + i)
-  const dayNums = Array.from({ length: daysInMonth }, (_, i) => i + 1)
-  const totalH  = G_HOURS * HOUR_H   // 16 * 28 = 448px
-  const totalW  = GUTTER_W + daysInMonth * DAY_W
+  const hours       = Array.from({ length: G_HOURS }, (_, i) => G_START + i) // [7..22]
+  const dayNums     = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+  const totalW      = DATE_LBL_W + G_HOURS * T_COL_W  // 72 + 16*52 = 904px
 
   const byDay = useMemo(() => {
     const map = new Map<number, LocalSchedule[]>()
@@ -125,105 +127,109 @@ function MonthGridView({
     return map
   }, [schedules, monthPfx])
 
+  // 하루 최대 이벤트 수 → 행 높이 결정
+  const maxEvts  = Math.max(1, ...dayNums.map(d => (byDay.get(d) ?? []).length))
+  const ROW_H    = maxEvts * (EVT_H + 2) + 6  // 이벤트 스택 + 상하 패딩
+
   return (
     <div style={{ overflowX: 'auto' }} className="rounded-2xl border border-stone-200 bg-white shadow-sm">
       <div style={{ minWidth: totalW }}>
 
-        {/* ── 날짜 헤더: 열(column) = 날짜 (왼→오른) ── */}
-        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'nowrap', borderBottom: '1px solid #e7e5e4', backgroundColor: '#fafaf9' }}>
+        {/* ── 시간 헤더: column = 시간 (왼→오른) ── */}
+        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'nowrap',
+                      borderBottom: '1px solid #e7e5e4', backgroundColor: '#fafaf9',
+                      position: 'sticky', top: 0, zIndex: 10 }}>
           {/* 좌상단 코너 */}
-          <div style={{ width: GUTTER_W, flexShrink: 0, borderRight: '1px solid #e7e5e4' }} />
-          {/* 날짜 헤더 셀 */}
-          {dayNums.map(d => {
-            const dow = new Date(year, month - 1, d).getDay()
-            return (
-              <div
-                key={d}
-                style={{ width: DAY_W, flexShrink: 0 }}
-                className={`border-r border-stone-100 text-center py-1.5 text-xs font-semibold ${
-                  dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-400' : 'text-stone-500'
-                }`}
-              >
-                <div>{d}</div>
-                <div className="text-[9px] font-normal opacity-50">
-                  {['일','월','화','수','목','금','토'][dow]}
-                </div>
-              </div>
-            )
-          })}
+          <div style={{ width: DATE_LBL_W, flexShrink: 0, borderRight: '1px solid #e7e5e4' }} />
+          {/* 시간 헤더 셀 */}
+          {hours.map(h => (
+            <div
+              key={h}
+              style={{ width: T_COL_W, flexShrink: 0 }}
+              className="border-r border-stone-100 text-center py-2 text-[10px] font-semibold text-stone-500"
+            >
+              {pad2(h)}:00
+            </div>
+          ))}
+          {/* 23:00 마지막 레이블 */}
+          <div className="w-8 text-center py-2 text-[10px] font-semibold text-stone-400">23</div>
         </div>
 
-        {/* ── 그리드 본체: 행(row)=시간, 열(column)=날짜 ── */}
-        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'nowrap' }}>
+        {/* ── 날짜 행들: row = 날짜 (위→아래) ── */}
+        {dayNums.map(d => {
+          const dateStr = `${year}-${pad2(month)}-${pad2(d)}`
+          const evts    = byDay.get(d) ?? []
+          const dow     = new Date(year, month - 1, d).getDay()
 
-          {/* 시간 레이블 열 (고정, 왼쪽 gutter) */}
-          <div style={{ width: GUTTER_W, flexShrink: 0, borderRight: '1px solid #e7e5e4' }}>
-            {hours.map(h => (
+          return (
+            <div
+              key={d}
+              style={{ display: 'flex', flexDirection: 'row', flexWrap: 'nowrap',
+                       borderBottom: '1px solid #f5f5f4' }}
+            >
+              {/* 날짜 레이블 */}
               <div
-                key={h}
-                style={{ height: HOUR_H, borderBottom: '1px solid #f5f5f4' }}
-                className="text-[10px] text-stone-400 pr-2 flex items-start justify-end pt-0.5"
-              >
-                {pad2(h)}:00
-              </div>
-            ))}
-          </div>
-
-          {/* 날짜 열들: 각 날짜 = 1개의 세로 열, 이벤트는 절대 위치로 배치 */}
-          {dayNums.map(d => {
-            const dateStr = `${year}-${pad2(month)}-${pad2(d)}`
-            const evts    = byDay.get(d) ?? []
-            const dow     = new Date(year, month - 1, d).getDay()
-
-            return (
-              <div
-                key={d}
-                style={{ width: DAY_W, flexShrink: 0, height: totalH, position: 'relative' }}
-                className={`border-r border-stone-100 cursor-pointer ${
-                  dow === 0 ? 'bg-red-50/30' : dow === 6 ? 'bg-blue-50/30' : 'hover:bg-stone-50/60'
+                style={{ width: DATE_LBL_W, flexShrink: 0, height: ROW_H, borderRight: '1px solid #e7e5e4' }}
+                className={`flex items-center gap-1 px-3 text-xs font-semibold ${
+                  dow === 0 ? 'text-red-500 bg-red-50/40'
+                  : dow === 6 ? 'text-blue-500 bg-blue-50/40'
+                  : 'text-stone-600 bg-stone-50/30'
                 }`}
+              >
+                <span className="font-bold">{d}</span>
+                <span className="text-[9px] font-normal opacity-60">
+                  {['일','월','화','수','목','금','토'][dow]}
+                </span>
+              </div>
+
+              {/* 시간 영역: 이벤트 블록 절대 위치 */}
+              <div
+                style={{ width: G_HOURS * T_COL_W, flexShrink: 0,
+                         position: 'relative', height: ROW_H, cursor: 'pointer' }}
+                className={dow === 0 ? 'bg-red-50/20' : dow === 6 ? 'bg-blue-50/20' : 'hover:bg-stone-50/40'}
                 onClick={() => onCreate(dateStr)}
               >
-                {/* 수평 시간선 (행 구분선) */}
+                {/* 수직 시간선 (column 구분선) */}
                 {hours.map((_, i) => (
                   <div
                     key={i}
-                    style={{ position: 'absolute', top: i * HOUR_H, left: 0, right: 0, borderBottom: '1px solid rgba(245,245,244,0.9)', pointerEvents: 'none' }}
+                    style={{ position: 'absolute', left: i * T_COL_W, top: 0, bottom: 0,
+                             borderRight: '1px solid rgba(245,245,244,0.9)', pointerEvents: 'none' }}
                   />
                 ))}
 
-                {/* 이벤트 블록: top = 시작시간 오프셋, height = 근무시간 길이 */}
-                {evts.map(s => {
-                  const c       = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
-                  const sName   = staffs.find(st => st.id === s.staffId)?.name ?? ''
-                  const topPx   = Math.max(timeTop(s.startTime), 0)
-                  const blockH  = Math.max(timePx(s.startTime, s.endTime), 12)
+                {/* 이벤트 블록: left=시작시간, width=근무시간, 수직 스택 */}
+                {evts.map((s, idx) => {
+                  const c      = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
+                  const sName  = staffs.find(st => st.id === s.staffId)?.name ?? ''
+                  const left   = Math.max(timeLeft(s.startTime), 0)
+                  const width  = Math.max(timePxW(s.startTime, s.endTime) - 3, 12)
+                  const top    = 3 + idx * (EVT_H + 2)
                   return (
                     <div
                       key={s.id}
                       style={{
                         position: 'absolute',
-                        top: topPx,
-                        height: blockH,
-                        left: 2,
-                        right: 2,
+                        left, width, top,
+                        height: EVT_H,
                         backgroundColor: c.bg,
                         color: c.text,
                         borderLeft: `3px solid ${c.dot}`,
                       }}
-                      className="rounded-sm overflow-hidden text-[8px] font-bold px-0.5 leading-tight"
+                      className="rounded-sm overflow-hidden text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none"
                       onClick={e => { e.stopPropagation(); onEdit(s) }}
                       title={`${sName}  ${s.startTime}–${s.endTime}`}
                     >
-                      {blockH >= 18 ? sName.slice(0, 2) : ''}
+                      <span>{sName.slice(0, 2)}</span>
+                      {width >= 80 && <span className="opacity-60 font-normal text-[8px]">{s.startTime}–{s.endTime}</span>}
                     </div>
                   )
                 })}
               </div>
-            )
-          })}
+            </div>
+          )
+        })}
 
-        </div>
       </div>
     </div>
   )
