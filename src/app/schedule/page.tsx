@@ -1,9 +1,12 @@
 'use client'
 
 import 'react-big-calendar/lib/css/react-big-calendar.css'
+import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react'
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar'
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
 import { format, parse, startOfWeek, getDay, addDays } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { supabase } from '@/lib/supabase'
@@ -21,6 +24,9 @@ const localizer = dateFnsLocalizer({
   getDay,
   locales: { ko },
 })
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const DnDCalendar = withDragAndDrop(Calendar as any) as any
 
 // ── 초기 기본값 (변경해도 기존 일정에 영향 없음) ─────────
 
@@ -99,10 +105,53 @@ function timePxW(s: string, e: string): number {
 
 // ── 월간 그리드 뷰 ────────────────────────────────────────
 // 레이아웃: row = 날짜(위→아래), column = 시간(왼→오른)
-// 컬럼 너비: min 52px (모바일 스크롤), 넓은 화면에서는 균등 분할
+// 이벤트 바 mousedown → drag move(날짜·시간 변경) / 좌우 핸들 drag → resize
+
+type MGDragType = 'move' | 'resizeStart' | 'resizeEnd'
+
+interface MGDragState {
+  type:          MGDragType
+  schedule:      LocalSchedule
+  initX:         number
+  initY:         number
+  initDayIdx:    number
+  timeAreaLeft:  number   // viewport px (scrollLeft 보정)
+  timeAreaWidth: number   // inner div 기준 실제 px
+  rowH:          number
+  durH:          number   // 드래그 중 고정할 근무 시간(h) — move 전용
+  hasDragged:    boolean
+  previewDate:   string
+  previewStart:  string
+  previewEnd:    string
+}
+
+interface MGPreview {
+  scheduleId: string
+  type:       MGDragType
+  previewDate:  string
+  previewStart: string
+  previewEnd:   string
+}
+
+const SNAP = 15  // 15분 단위 스냅
+
+function minsToTime(mins: number): string {
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return `${pad2(h)}:${pad2(m)}`
+}
+
+function timeToMins(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+function snapMins(mins: number): number {
+  return Math.round(mins / SNAP) * SNAP
+}
 
 function MonthGridView({
-  schedules, staffs, staffColorMap, year, month, onEdit, onCreate,
+  schedules, staffs, staffColorMap, year, month, onEdit, onCreate, onMove, onResize,
 }: {
   schedules:     LocalSchedule[]
   staffs:        StaffBasic[]
@@ -111,15 +160,15 @@ function MonthGridView({
   month:         number
   onEdit:        (s: LocalSchedule) => void
   onCreate:      (date: string) => void
+  onMove:        (id: string, newDate: string, newStart: string, newEnd: string) => void
+  onResize:      (id: string, date: string, newStart: string, newEnd: string) => void
 }) {
   const daysInMonth = new Date(year, month, 0).getDate()
   const monthPfx    = `${year}-${pad2(month)}`
   const hours       = Array.from({ length: G_HOURS }, (_, i) => G_START + i)
   const dayNums     = Array.from({ length: daysInMonth }, (_, i) => i + 1)
-  // 모바일 최소 너비 (스크롤 기준)
-  const minW        = DATE_LBL_W + G_HOURS * T_COL_W  // 72 + 14*52 = 800px
+  const minW        = DATE_LBL_W + G_HOURS * T_COL_W
 
-  // 시간 → 이벤트 위치 (시간 영역 너비의 %)
   function evtLeftPct(t: string) {
     const [h, m] = t.split(':').map(Number)
     return `${Math.max((h - G_START + m / 60) / G_HOURS * 100, 0)}%`
@@ -143,30 +192,167 @@ function MonthGridView({
   const maxEvts = Math.max(1, ...dayNums.map(d => (byDay.get(d) ?? []).length))
   const ROW_H   = maxEvts * (EVT_H + 2) + 6
 
+  // ── Drag 상태 ──
+  const outerRef  = useRef<HTMLDivElement>(null)
+  const innerRef  = useRef<HTMLDivElement>(null)
+  const dragRef   = useRef<MGDragState | null>(null)
+  const cbRef     = useRef({ onEdit, onCreate, onMove, onResize })
+  useEffect(() => { cbRef.current = { onEdit, onCreate, onMove, onResize } },
+    [onEdit, onCreate, onMove, onResize])
+  const [dragPreview, setDragPreview] = useState<MGPreview | null>(null)
+
+  // 전역 mousemove / mouseup
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      const drag = dragRef.current
+      if (!drag) return
+      e.preventDefault()
+
+      const dx = e.clientX - drag.initX
+      const dy = e.clientY - drag.initY
+      if (!drag.hasDragged && Math.sqrt(dx * dx + dy * dy) > 4) {
+        drag.hasDragged = true
+      }
+      if (!drag.hasDragged) return
+
+      const { type, schedule, timeAreaLeft, timeAreaWidth, initDayIdx, rowH, durH } = drag
+
+      // X 델타 → 시간 델타 (분 단위, 스냅)
+      const rawDeltaMins = dx / timeAreaWidth * G_HOURS * 60
+      const deltaMins    = snapMins(rawDeltaMins)
+
+      if (type === 'move') {
+        // 시작 시간 = 원본 + delta, 종료 = 시작 + duration
+        const origStartMins = timeToMins(schedule.startTime)
+        const origEndMins   = timeToMins(schedule.endTime)
+        const durationMins  = origEndMins - origStartMins
+        const maxStartMins  = G_END * 60 - durationMins
+        const newStartMins  = Math.max(G_START * 60, Math.min(maxStartMins, snapMins(origStartMins + deltaMins)))
+        const newEndMins    = newStartMins + durationMins
+        const newStart = minsToTime(newStartMins)
+        const newEnd   = minsToTime(newEndMins)
+
+        // Y 델타 → 날짜 변경
+        const dayDelta   = Math.round(dy / rowH)
+        const newDayIdx  = Math.max(0, Math.min(daysInMonth - 1, initDayIdx + dayDelta))
+        const newDay     = dayNums[newDayIdx]
+        const newDate    = `${year}-${pad2(month)}-${pad2(newDay)}`
+
+        drag.previewDate  = newDate
+        drag.previewStart = newStart
+        drag.previewEnd   = newEnd
+        setDragPreview({ scheduleId: schedule.id, type, previewDate: newDate, previewStart: newStart, previewEnd: newEnd })
+
+      } else if (type === 'resizeStart') {
+        const origStartMins = timeToMins(schedule.startTime)
+        const origEndMins   = timeToMins(schedule.endTime)
+        const newStartMins  = Math.max(G_START * 60, Math.min(origEndMins - SNAP, snapMins(origStartMins + deltaMins)))
+        const newStart = minsToTime(newStartMins)
+        drag.previewStart = newStart
+        setDragPreview(p => p ? { ...p, previewStart: newStart } : null)
+
+      } else {
+        const origStartMins = timeToMins(schedule.startTime)
+        const origEndMins   = timeToMins(schedule.endTime)
+        const newEndMins    = Math.max(origStartMins + SNAP, Math.min(G_END * 60, snapMins(origEndMins + deltaMins)))
+        const newEnd = minsToTime(newEndMins)
+        drag.previewEnd = newEnd
+        setDragPreview(p => p ? { ...p, previewEnd: newEnd } : null)
+      }
+    }
+
+    function onMouseUp() {
+      const drag = dragRef.current
+      if (!drag) return
+
+      if (!drag.hasDragged) {
+        // 클릭으로 처리 → 모달 열기
+        cbRef.current.onEdit(drag.schedule)
+      } else {
+        const { schedule, type, previewDate, previewStart, previewEnd } = drag
+        const changed = previewDate !== schedule.date
+          || previewStart !== schedule.startTime
+          || previewEnd   !== schedule.endTime
+        if (changed) {
+          if (type === 'move') cbRef.current.onMove(schedule.id, previewDate, previewStart, previewEnd)
+          else cbRef.current.onResize(schedule.id, previewDate, previewStart, previewEnd)
+        }
+      }
+      dragRef.current = null
+      setDragPreview(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove, { passive: false })
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [daysInMonth, year, month])
+
+  function startDrag(s: LocalSchedule, type: MGDragType, e: React.MouseEvent, dayIdx: number) {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const outer = outerRef.current
+    const inner = innerRef.current
+    if (!outer || !inner) return
+
+    const outerRect      = outer.getBoundingClientRect()
+    const timeAreaLeft   = outerRect.left + DATE_LBL_W - outer.scrollLeft
+    const timeAreaWidth  = inner.offsetWidth - DATE_LBL_W
+    const [sh, sm] = s.startTime.split(':').map(Number)
+    const [eh, em] = s.endTime.split(':').map(Number)
+    const durH = (eh + em / 60) - (sh + sm / 60)
+
+    dragRef.current = {
+      type, schedule: s,
+      initX: e.clientX, initY: e.clientY,
+      initDayIdx: dayIdx,
+      timeAreaLeft, timeAreaWidth,
+      rowH: ROW_H, durH,
+      hasDragged: false,
+      previewDate:  s.date,
+      previewStart: s.startTime,
+      previewEnd:   s.endTime,
+    }
+    setDragPreview({
+      scheduleId: s.id, type,
+      previewDate: s.date, previewStart: s.startTime, previewEnd: s.endTime,
+    })
+  }
+
   return (
-    <div style={{ overflowX: 'auto' }} className="rounded-2xl border border-stone-200 bg-white shadow-sm">
-      <div style={{ minWidth: minW }}>
+    <div ref={outerRef} style={{ overflowX: 'auto', userSelect: dragPreview ? 'none' : undefined }} className="rounded-2xl border border-stone-200 bg-white shadow-sm">
+      <div ref={innerRef} style={{ minWidth: minW }}>
 
         {/* ── 시간 헤더 ── */}
         <div style={{ display: 'flex', borderBottom: '1px solid #e7e5e4',
                       backgroundColor: '#fafaf9', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ width: DATE_LBL_W, flexShrink: 0, borderRight: '1px solid #e7e5e4' }} />
           {hours.map(h => (
-            <div
-              key={h}
-              style={{ flex: 1, minWidth: T_COL_W }}
-              className="border-r border-stone-100 text-center py-2 text-[10px] font-semibold text-stone-500"
-            >
+            <div key={h} style={{ flex: 1, minWidth: T_COL_W }}
+                 className="border-r border-stone-100 text-center py-2 text-[10px] font-semibold text-stone-500">
               {pad2(h)}:00
             </div>
           ))}
         </div>
 
         {/* ── 날짜 행들 ── */}
-        {dayNums.map(d => {
+        {dayNums.map((d, dayIdx) => {
           const dateStr = `${year}-${pad2(month)}-${pad2(d)}`
           const evts    = byDay.get(d) ?? []
           const dow     = new Date(year, month - 1, d).getDay()
+
+          // 이 행으로 이동 중인 크로스-날짜 ghost
+          const ghost = (dragPreview?.type === 'move'
+            && dragPreview.previewDate === dateStr
+            && dragPreview.previewDate !== schedules.find(s => s.id === dragPreview.scheduleId)?.date)
+            ? dragPreview : null
+
+          const ghostSchedule = ghost
+            ? schedules.find(s => s.id === ghost.scheduleId) : null
 
           return (
             <div key={d} style={{ display: 'flex', borderBottom: '1px solid #f5f5f4' }}>
@@ -185,57 +371,109 @@ function MonthGridView({
                 </span>
               </div>
 
-              {/* 시간 영역 — flex:1 로 가용 너비 전체를 차지, 이벤트는 % 위치 */}
+              {/* 시간 영역 */}
               <div
-                style={{ flex: 1, minWidth: G_HOURS * T_COL_W,
-                         position: 'relative', height: ROW_H, cursor: 'pointer' }}
+                style={{ flex: 1, minWidth: G_HOURS * T_COL_W, position: 'relative',
+                         height: ROW_H, cursor: dragPreview ? 'grabbing' : 'pointer' }}
                 className={dow === 0 ? 'bg-red-50/20' : dow === 6 ? 'bg-blue-50/20' : 'hover:bg-stone-50/40'}
-                onClick={() => onCreate(dateStr)}
+                onClick={() => { if (!dragPreview) onCreate(dateStr) }}
               >
                 {/* 수직 시간선 */}
                 {hours.map((_, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      position: 'absolute',
-                      left: `${i / G_HOURS * 100}%`,
-                      top: 0, bottom: 0,
-                      borderRight: '1px solid rgba(245,245,244,0.9)',
-                      pointerEvents: 'none',
-                    }}
-                  />
+                  <div key={i} style={{
+                    position: 'absolute', left: `${i / G_HOURS * 100}%`,
+                    top: 0, bottom: 0, borderRight: '1px solid rgba(245,245,244,0.9)', pointerEvents: 'none',
+                  }} />
                 ))}
 
                 {/* 이벤트 블록 */}
                 {evts.map((s, idx) => {
-                  const c     = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
-                  const sName = staffs.find(st => st.id === s.staffId)?.name ?? ''
-                  const [sh, sm] = s.startTime.split(':').map(Number)
-                  const [eh, em] = s.endTime.split(':').map(Number)
-                  const durH  = (eh + em / 60) - (sh + sm / 60)
-                  const top   = 3 + idx * (EVT_H + 2)
+                  const c       = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
+                  const sName   = staffs.find(st => st.id === s.staffId)?.name ?? ''
+                  const top     = 3 + idx * (EVT_H + 2)
+
+                  // 드래그 중이면 preview 값 사용
+                  const isActive = dragPreview?.scheduleId === s.id
+                  const isCrossDate = isActive && dragPreview!.previewDate !== s.date
+                  const dispStart = isActive ? dragPreview!.previewStart : s.startTime
+                  const dispEnd   = isActive ? dragPreview!.previewEnd   : s.endTime
+                  const [dsh, dsm] = dispStart.split(':').map(Number)
+                  const [deh, dem] = dispEnd.split(':').map(Number)
+                  const durH = (deh + dem / 60) - (dsh + dsm / 60)
+
                   return (
                     <div
                       key={s.id}
                       style={{
                         position: 'absolute',
-                        left:   evtLeftPct(s.startTime),
-                        width:  evtWidthPct(s.startTime, s.endTime),
+                        left:    isCrossDate ? evtLeftPct(s.startTime) : evtLeftPct(dispStart),
+                        width:   isCrossDate ? evtWidthPct(s.startTime, s.endTime) : evtWidthPct(dispStart, dispEnd),
                         top,
-                        height: EVT_H,
-                        backgroundColor: c.bg,
-                        color: c.text,
-                        borderLeft: `3px solid ${c.dot}`,
+                        height:  EVT_H,
+                        opacity: isCrossDate ? 0.3 : 1,
+                        cursor:  'grab',
+                        zIndex:  isActive ? 5 : undefined,
                       }}
-                      className="rounded-sm overflow-hidden text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none"
-                      onClick={e => { e.stopPropagation(); onEdit(s) }}
+                      onMouseDown={e => startDrag(s, 'move', e, dayIdx)}
                       title={`${sName}  ${s.startTime}–${s.endTime}`}
                     >
-                      <span>{sName.slice(0, 2)}</span>
-                      {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{s.startTime}–{s.endTime}</span>}
+                      {/* 왼쪽 resize 핸들 */}
+                      <div
+                        style={{ position: 'absolute', left: 0, top: 0, width: 7, height: '100%',
+                                 cursor: 'ew-resize', zIndex: 2 }}
+                        onMouseDown={e => { e.stopPropagation(); startDrag(s, 'resizeStart', e, dayIdx) }}
+                      />
+                      {/* 오른쪽 resize 핸들 */}
+                      <div
+                        style={{ position: 'absolute', right: 0, top: 0, width: 7, height: '100%',
+                                 cursor: 'ew-resize', zIndex: 2 }}
+                        onMouseDown={e => { e.stopPropagation(); startDrag(s, 'resizeEnd', e, dayIdx) }}
+                      />
+                      {/* 시각적 컨텐츠 */}
+                      <div style={{
+                        position: 'absolute', left: 0, top: 0, right: 0, bottom: 0,
+                        backgroundColor: c.bg, color: c.text,
+                        borderLeft: `3px solid ${c.dot}`,
+                        borderRadius: 2, overflow: 'hidden',
+                        pointerEvents: 'none',
+                      }} className="text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none">
+                        <span>{sName.slice(0, 2)}</span>
+                        {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{dispStart}–{dispEnd}</span>}
+                      </div>
                     </div>
                   )
                 })}
+
+                {/* 크로스-날짜 이동 ghost */}
+                {ghost && ghostSchedule && (() => {
+                  const c     = staffColorMap.get(ghostSchedule.staffId) ?? COLOR_PALETTE[0]
+                  const sName = staffs.find(st => st.id === ghostSchedule.staffId)?.name ?? ''
+                  const top   = 3 + evts.length * (EVT_H + 2)
+                  const [gh, gm] = ghost.previewStart.split(':').map(Number)
+                  const [ge, gem] = ghost.previewEnd.split(':').map(Number)
+                  const durH = (ge + gem / 60) - (gh + gm / 60)
+                  return (
+                    <div
+                      key="ghost"
+                      style={{
+                        position: 'absolute',
+                        left:   evtLeftPct(ghost.previewStart),
+                        width:  evtWidthPct(ghost.previewStart, ghost.previewEnd),
+                        top, height: EVT_H,
+                        backgroundColor: c.bg, color: c.text,
+                        borderLeft: `3px solid ${c.dot}`,
+                        borderRadius: 2, overflow: 'hidden',
+                        opacity: 0.7, pointerEvents: 'none',
+                        outline: `2px dashed ${c.dot}`,
+                        zIndex: 5,
+                      }}
+                      className="text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none"
+                    >
+                      <span>{sName.slice(0, 2)}</span>
+                      {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{ghost.previewStart}–{ghost.previewEnd}</span>}
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )
@@ -723,6 +961,78 @@ export default function SchedulePage() {
     setModal({ mode: 'create', date })
   }
 
+  // ── 주간 DnD 핸들러 ─────────────────────────────────────
+
+  const onEventDrop = useCallback(async ({ event, start, end }: {
+    event: CalEvent; start: Date | string; end: Date | string
+  }) => {
+    const s = event.resource
+    const st = start instanceof Date ? start : new Date(start)
+    const en = end   instanceof Date ? end   : new Date(end)
+    const newDate  = format(st, 'yyyy-MM-dd')
+    const newStart = format(st, 'HH:mm')
+    const newEnd   = format(en, 'HH:mm')
+    const newShiftType   = inferShiftType(newStart)
+    const recorded_hours = timeToHours(newStart, newEnd)
+    await supabase.from('schedules').update({
+      date: newDate, start_time: newStart, end_time: newEnd,
+      shift_type: newShiftType, recorded_hours,
+    }).eq('id', s.id)
+    setSchedules(prev => prev.map(sc => sc.id === s.id
+      ? { ...sc, date: newDate, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
+      : sc))
+  }, [])
+
+  const onEventResize = useCallback(async ({ event, start, end }: {
+    event: CalEvent; start: Date | string; end: Date | string
+  }) => {
+    const s = event.resource
+    const st = start instanceof Date ? start : new Date(start)
+    const en = end   instanceof Date ? end   : new Date(end)
+    const newDate  = format(st, 'yyyy-MM-dd')
+    const newStart = format(st, 'HH:mm')
+    const newEnd   = format(en, 'HH:mm')
+    const newShiftType   = inferShiftType(newStart)
+    const recorded_hours = timeToHours(newStart, newEnd)
+    await supabase.from('schedules').update({
+      date: newDate, start_time: newStart, end_time: newEnd,
+      shift_type: newShiftType, recorded_hours,
+    }).eq('id', s.id)
+    setSchedules(prev => prev.map(sc => sc.id === s.id
+      ? { ...sc, date: newDate, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
+      : sc))
+  }, [])
+
+  // ── 월간 DnD 핸들러 ─────────────────────────────────────
+
+  const handleMonthMove = useCallback(async (
+    id: string, newDate: string, newStart: string, newEnd: string
+  ) => {
+    const newShiftType   = inferShiftType(newStart)
+    const recorded_hours = timeToHours(newStart, newEnd)
+    await supabase.from('schedules').update({
+      date: newDate, start_time: newStart, end_time: newEnd,
+      shift_type: newShiftType, recorded_hours,
+    }).eq('id', id)
+    setSchedules(prev => prev.map(s => s.id === id
+      ? { ...s, date: newDate, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
+      : s))
+  }, [])
+
+  const handleMonthResize = useCallback(async (
+    id: string, _date: string, newStart: string, newEnd: string
+  ) => {
+    const newShiftType   = inferShiftType(newStart)
+    const recorded_hours = timeToHours(newStart, newEnd)
+    await supabase.from('schedules').update({
+      start_time: newStart, end_time: newEnd,
+      shift_type: newShiftType, recorded_hours,
+    }).eq('id', id)
+    setSchedules(prev => prev.map(s => s.id === id
+      ? { ...s, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
+      : s))
+  }, [])
+
   // ── 렌더 ────────────────────────────────────────────────
 
   if (loading) {
@@ -916,7 +1226,7 @@ export default function SchedulePage() {
         {/* ── 뷰 영역 ── */}
         {view === 'week' ? (
           <>
-            <Calendar
+            <DnDCalendar
               localizer={localizer}
               events={filteredEvents}
               defaultView="week"
@@ -927,6 +1237,8 @@ export default function SchedulePage() {
               selectable
               onSelectSlot={onSelectSlot as (slotInfo: object) => void}
               onSelectEvent={onSelectEvent as (event: object) => void}
+              onEventDrop={onEventDrop as (args: object) => void}
+              onEventResize={onEventResize as (args: object) => void}
               eventPropGetter={eventPropGetter as (event: object) => object}
               formats={calFormats as object}
               min={new Date(0, 0, 0, 9, 0)}
@@ -977,6 +1289,8 @@ export default function SchedulePage() {
               month={calDate.getMonth() + 1}
               onEdit={onMonthEdit}
               onCreate={onMonthCreate}
+              onMove={handleMonthMove}
+              onResize={handleMonthResize}
             />
 
             {/* ── 이번 달 배정 현황 ── */}
