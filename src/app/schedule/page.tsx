@@ -72,6 +72,151 @@ interface FormState {
 
 type ShiftDefaults = Record<ShiftType, { start: string; end: string }>
 
+// ── 월간 그리드 상수 / 헬퍼 ──────────────────────────────
+
+const HOUR_H    = 28   // px per hour
+const G_START   = 7    // 07:00
+const G_END     = 23   // 23:00
+const G_HOURS   = G_END - G_START   // 16 슬롯
+const DAY_W     = 46   // px per day column
+
+function pad2(n: number) { return String(n).padStart(2, '0') }
+function timeTop(t: string) {
+  const [h, m] = t.split(':').map(Number)
+  return (h - G_START + m / 60) * HOUR_H
+}
+function timePx(s: string, e: string) {
+  const [sh, sm] = s.split(':').map(Number)
+  const [eh, em] = e.split(':').map(Number)
+  return ((eh + em / 60) - (sh + sm / 60)) * HOUR_H
+}
+
+// ── 월간 그리드 뷰 ────────────────────────────────────────
+
+function MonthGridView({
+  schedules, staffs, staffColorMap, year, month, onEdit, onCreate,
+}: {
+  schedules:    LocalSchedule[]
+  staffs:       StaffBasic[]
+  staffColorMap: Map<string, typeof COLOR_PALETTE[0]>
+  year:         number
+  month:        number
+  onEdit:       (s: LocalSchedule) => void
+  onCreate:     (date: string) => void
+}) {
+  const days        = new Date(year, month, 0).getDate()
+  const monthPfx    = `${year}-${pad2(month)}`
+  const hours       = Array.from({ length: G_HOURS + 1 }, (_, i) => G_START + i)
+  const dayNums     = Array.from({ length: days }, (_, i) => i + 1)
+
+  const byDay = useMemo(() => {
+    const map = new Map<number, LocalSchedule[]>()
+    for (const s of schedules) {
+      if (!s.date.startsWith(monthPfx)) continue
+      const d = parseInt(s.date.slice(8, 10))
+      map.set(d, [...(map.get(d) ?? []), s])
+    }
+    return map
+  }, [schedules, monthPfx])
+
+  const totalW = 56 + days * DAY_W
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
+      <div style={{ minWidth: totalW }}>
+
+        {/* ── 날짜 헤더 ── */}
+        <div className="flex border-b border-stone-200 bg-stone-50 sticky top-0 z-10">
+          <div style={{ width: 56 }} className="flex-shrink-0 border-r border-stone-200" />
+          {dayNums.map(d => {
+            const dow = new Date(year, month - 1, d).getDay()
+            return (
+              <div
+                key={d}
+                style={{ width: DAY_W }}
+                className={`flex-shrink-0 border-r border-stone-100 text-center py-1.5 text-xs font-semibold ${
+                  dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-400' : 'text-stone-500'
+                }`}
+              >
+                <div>{d}</div>
+                <div className="text-[9px] font-normal opacity-50">
+                  {['일','월','화','수','목','금','토'][dow]}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ── 시간 × 날짜 그리드 ── */}
+        <div className="flex">
+
+          {/* 시간 레이블 */}
+          <div style={{ width: 56 }} className="flex-shrink-0 border-r border-stone-200">
+            {hours.map((h, i) => (
+              <div
+                key={h}
+                style={{ height: HOUR_H }}
+                className={`text-[10px] text-stone-400 pr-2 flex items-start justify-end pt-0.5 ${i < hours.length - 1 ? 'border-b border-stone-100' : ''}`}
+              >
+                {pad2(h)}:00
+              </div>
+            ))}
+          </div>
+
+          {/* 날짜 열 */}
+          {dayNums.map(d => {
+            const dateStr = `${year}-${pad2(month)}-${pad2(d)}`
+            const evts    = byDay.get(d) ?? []
+            const dow     = new Date(year, month - 1, d).getDay()
+
+            return (
+              <div
+                key={d}
+                style={{ width: DAY_W, height: G_HOURS * HOUR_H, position: 'relative' }}
+                className={`flex-shrink-0 border-r border-stone-100 cursor-pointer ${
+                  dow === 0 ? 'bg-red-50/30' : dow === 6 ? 'bg-blue-50/30' : 'hover:bg-stone-50/60'
+                }`}
+                onClick={() => onCreate(dateStr)}
+              >
+                {/* 시간선 */}
+                {Array.from({ length: G_HOURS }, (_, i) => (
+                  <div key={i} style={{ top: i * HOUR_H }} className="absolute inset-x-0 border-b border-stone-100/80 pointer-events-none" />
+                ))}
+
+                {/* 이벤트 블록 */}
+                {evts.map(s => {
+                  const c    = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
+                  const name = staffs.find(st => st.id === s.staffId)?.name ?? ''
+                  const top  = Math.max(timeTop(s.startTime), 0)
+                  const h    = Math.max(timePx(s.startTime, s.endTime), 12)
+                  return (
+                    <div
+                      key={s.id}
+                      style={{
+                        position: 'absolute', top, height: h,
+                        left: 2, right: 2,
+                        backgroundColor: c.bg,
+                        color: c.text,
+                        borderLeft: `3px solid ${c.dot}`,
+                      }}
+                      className="rounded-sm overflow-hidden text-[8px] font-bold px-0.5 leading-tight"
+                      onClick={e => { e.stopPropagation(); onEdit(s) }}
+                      title={`${name}  ${s.startTime}–${s.endTime}`}
+                    >
+                      {h >= 18 ? name.slice(0, 2) : ''}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
 // ── 헬퍼 ─────────────────────────────────────────────────
 
 type StaffBasic = StaffItem
@@ -126,6 +271,7 @@ export default function SchedulePage() {
   const [schedules,     setSchedules]     = useState<LocalSchedule[]>([])
   const [loading,       setLoading]       = useState(true)
   const [calDate,       setCalDate]       = useState(new Date())
+  const [view,          setView]          = useState<'week' | 'month'>('week')
   const [modal,         setModal]         = useState<Modal>(null)
   const [showSettings,  setShowSettings]  = useState(false)
   const [showStaffMgr,  setShowStaffMgr]  = useState(false)
@@ -348,7 +494,33 @@ export default function SchedulePage() {
       `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}`,
   }), [])
 
-  const weekLabel = getWeekLabel(calDate)
+  const weekLabel  = getWeekLabel(calDate)
+  const monthLabel = `${calDate.getFullYear()}년 ${calDate.getMonth() + 1}월`
+  const navLabel   = view === 'week' ? weekLabel : monthLabel
+
+  function goBack() {
+    if (view === 'week') setCalDate(d => addDays(d, -7))
+    else setCalDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))
+  }
+  function goForward() {
+    if (view === 'week') setCalDate(d => addDays(d, 7))
+    else setCalDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))
+  }
+
+  function onMonthEdit(s: LocalSchedule) {
+    setForm({ staffId: s.staffId, shiftType: s.shiftType, startTime: s.startTime, endTime: s.endTime, note: s.note })
+    setModal({ mode: 'edit', schedule: s })
+  }
+  function onMonthCreate(date: string) {
+    setForm({
+      staffId:   staffs.find(s => s.is_active)?.id ?? '',
+      shiftType: '오픈',
+      startTime: shiftDefaults['오픈'].start,
+      endTime:   shiftDefaults['오픈'].end,
+      note:      '',
+    })
+    setModal({ mode: 'create', date })
+  }
 
   // ── 렌더 ────────────────────────────────────────────────
 
@@ -368,10 +540,25 @@ export default function SchedulePage() {
       <div className="mx-auto max-w-6xl">
 
         {/* ── 상단 네비게이션 ── */}
-        <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-bold tracking-tight text-stone-800">근무표</h1>
 
           <div className="flex items-center gap-2">
+            {/* 뷰 토글 */}
+            <div className="flex rounded-xl bg-stone-100 p-1">
+              {(['week', 'month'] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-bold transition-all ${
+                    view === v ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
+                  }`}
+                >
+                  {v === 'week' ? '주간' : '월간'}
+                </button>
+              ))}
+            </div>
+
             {/* 직원 관리 (관리자 전용) */}
             {isAdmin && (
               <button
@@ -381,24 +568,19 @@ export default function SchedulePage() {
                 직원 관리
               </button>
             )}
-            {/* 주 이동 */}
-            <button
-              onClick={() => setCalDate(d => addDays(d, -7))}
-              className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90"
-            >
+
+            {/* 이동 */}
+            <button onClick={goBack} className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
               </svg>
             </button>
 
-            <div className="min-w-[220px] rounded-xl border border-stone-200 bg-white px-4 py-2 text-center shadow-sm">
-              <span className="text-sm font-semibold text-stone-700">{weekLabel}</span>
+            <div className="min-w-[200px] rounded-xl border border-stone-200 bg-white px-4 py-2 text-center shadow-sm">
+              <span className="text-sm font-semibold text-stone-700">{navLabel}</span>
             </div>
 
-            <button
-              onClick={() => setCalDate(d => addDays(d, 7))}
-              className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90"
-            >
+            <button onClick={goForward} className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
               </svg>
@@ -408,7 +590,7 @@ export default function SchedulePage() {
               onClick={() => setCalDate(new Date())}
               className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm hover:bg-amber-100 active:scale-95"
             >
-              이번 주
+              {view === 'week' ? '이번 주' : '이번 달'}
             </button>
 
             {/* 시간 설정 토글 */}
@@ -496,7 +678,7 @@ export default function SchedulePage() {
         {/* ── 직원 범례 ── */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {staffs.map((staff, i) => {
-            const c = COLOR_PALETTE[i % COLOR_PALETTE.length]
+            const c = staffColorMap.get(staff.id) ?? COLOR_PALETTE[i % COLOR_PALETTE.length]
             return (
               <span
                 key={staff.id}
@@ -510,62 +692,71 @@ export default function SchedulePage() {
           })}
         </div>
 
-        {/* ── 캘린더 ── */}
-        <Calendar
-          localizer={localizer}
-          events={events}
-          defaultView="week"
-          views={['week']}
-          date={calDate}
-          onNavigate={setCalDate}
-          culture="ko"
-          selectable
-          onSelectSlot={onSelectSlot as (slotInfo: object) => void}
-          onSelectEvent={onSelectEvent as (event: object) => void}
-          eventPropGetter={eventPropGetter as (event: object) => object}
-          formats={calFormats as object}
-          min={new Date(0, 0, 0, 7, 0)}
-          max={new Date(0, 0, 0, 23, 0)}
-          step={60}
-          timeslots={1}
-          style={{ height: 'calc(100vh - 280px)', minHeight: 540 }}
-          components={{
-            toolbar: () => null,
-            event: CalEventCard as (props: object) => React.ReactElement,
-          }}
-        />
+        {/* ── 뷰 영역 ── */}
+        {view === 'week' ? (
+          <>
+            <Calendar
+              localizer={localizer}
+              events={events}
+              defaultView="week"
+              views={['week']}
+              date={calDate}
+              onNavigate={setCalDate}
+              culture="ko"
+              selectable
+              onSelectSlot={onSelectSlot as (slotInfo: object) => void}
+              onSelectEvent={onSelectEvent as (event: object) => void}
+              eventPropGetter={eventPropGetter as (event: object) => object}
+              formats={calFormats as object}
+              min={new Date(0, 0, 0, 7, 0)}
+              max={new Date(0, 0, 0, 23, 0)}
+              step={60}
+              timeslots={1}
+              style={{ height: 'calc(100vh - 280px)', minHeight: 540 }}
+              components={{
+                toolbar: () => null,
+                event: CalEventCard as (props: object) => React.ReactElement,
+              }}
+            />
 
-        {/* ── 이번 주 배정 시간 통계 ── */}
-        <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-stone-100 bg-stone-50 px-5 py-3 flex items-center justify-between">
-            <span className="text-sm font-bold text-stone-700">이번 주 배정 현황</span>
-            <span className="text-xs text-stone-400">{weekLabel}</span>
-          </div>
-          <div className="grid grid-cols-2 divide-x divide-y divide-stone-100 sm:grid-cols-4 lg:grid-cols-7">
-            {weekStats.map(({ staff, hours, count }, i) => {
-              const c = COLOR_PALETTE[i % COLOR_PALETTE.length]
-              return (
-                <div key={staff.id} className="flex flex-col items-center gap-1 px-3 py-4">
-                  <span
-                    className="mb-1 h-2.5 w-2.5 rounded-full"
-                    style={{ background: c.dot }}
-                  />
-                  <span className="text-xs font-semibold text-stone-700">{staff.name}</span>
-                  <span className="text-xl font-extrabold" style={{ color: c.text }}>
-                    {hours}h
-                  </span>
-                  <span className="text-[11px] text-stone-400">{count}회 배정</span>
-                </div>
-              )
-            })}
-          </div>
-          <div className="border-t border-stone-100 bg-stone-50 px-5 py-2.5 flex items-center gap-4">
-            <span className="text-xs text-stone-500">
-              총 <span className="font-bold text-stone-700">{weekStats.reduce((a, s) => a + s.hours, 0)}h</span> ·{' '}
-              <span className="font-bold text-stone-700">{weekStats.reduce((a, s) => a + s.count, 0)}회</span> 배정
-            </span>
-          </div>
-        </div>
+            {/* ── 이번 주 배정 시간 통계 ── */}
+            <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+              <div className="border-b border-stone-100 bg-stone-50 px-5 py-3 flex items-center justify-between">
+                <span className="text-sm font-bold text-stone-700">이번 주 배정 현황</span>
+                <span className="text-xs text-stone-400">{weekLabel}</span>
+              </div>
+              <div className="grid grid-cols-2 divide-x divide-y divide-stone-100 sm:grid-cols-4 lg:grid-cols-7">
+                {weekStats.map(({ staff, hours, count }) => {
+                  const c = staffColorMap.get(staff.id) ?? COLOR_PALETTE[0]
+                  return (
+                    <div key={staff.id} className="flex flex-col items-center gap-1 px-3 py-4">
+                      <span className="mb-1 h-2.5 w-2.5 rounded-full" style={{ background: c.dot }} />
+                      <span className="text-xs font-semibold text-stone-700">{staff.name}</span>
+                      <span className="text-xl font-extrabold" style={{ color: c.text }}>{hours}h</span>
+                      <span className="text-[11px] text-stone-400">{count}회 배정</span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="border-t border-stone-100 bg-stone-50 px-5 py-2.5 flex items-center gap-4">
+                <span className="text-xs text-stone-500">
+                  총 <span className="font-bold text-stone-700">{weekStats.reduce((a, s) => a + s.hours, 0)}h</span> ·{' '}
+                  <span className="font-bold text-stone-700">{weekStats.reduce((a, s) => a + s.count, 0)}회</span> 배정
+                </span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <MonthGridView
+            schedules={schedules}
+            staffs={staffs}
+            staffColorMap={staffColorMap}
+            year={calDate.getFullYear()}
+            month={calDate.getMonth() + 1}
+            onEdit={onMonthEdit}
+            onCreate={onMonthCreate}
+          />
+        )}
 
       </div>
 
