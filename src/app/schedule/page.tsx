@@ -149,7 +149,7 @@ export default function SchedulePage() {
       const year = new Date().getFullYear()
 
       const [{ data: staffData }, { data: schData }] = await Promise.all([
-        supabase.from('staffs').select('id, name, hourly_wage, is_active, color_index').order('name'),
+        supabase.from('staffs').select('*').order('name'),
         supabase.from('schedules').select('*')
           .gte('date', `${year}-01-01`).lte('date', `${year}-12-31`),
       ])
