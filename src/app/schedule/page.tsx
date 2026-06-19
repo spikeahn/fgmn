@@ -99,6 +99,7 @@ function timePxW(s: string, e: string): number {
 
 // ── 월간 그리드 뷰 ────────────────────────────────────────
 // 레이아웃: row = 날짜(위→아래), column = 시간(왼→오른)
+// 컬럼 너비: min 52px (모바일 스크롤), 넓은 화면에서는 균등 분할
 
 function MonthGridView({
   schedules, staffs, staffColorMap, year, month, onEdit, onCreate,
@@ -113,9 +114,21 @@ function MonthGridView({
 }) {
   const daysInMonth = new Date(year, month, 0).getDate()
   const monthPfx    = `${year}-${pad2(month)}`
-  const hours       = Array.from({ length: G_HOURS }, (_, i) => G_START + i) // [7..22]
+  const hours       = Array.from({ length: G_HOURS }, (_, i) => G_START + i)
   const dayNums     = Array.from({ length: daysInMonth }, (_, i) => i + 1)
-  const totalW      = DATE_LBL_W + G_HOURS * T_COL_W  // 72 + 16*52 = 904px
+  // 모바일 최소 너비 (스크롤 기준)
+  const minW        = DATE_LBL_W + G_HOURS * T_COL_W  // 72 + 14*52 = 800px
+
+  // 시간 → 이벤트 위치 (시간 영역 너비의 %)
+  function evtLeftPct(t: string) {
+    const [h, m] = t.split(':').map(Number)
+    return `${Math.max((h - G_START + m / 60) / G_HOURS * 100, 0)}%`
+  }
+  function evtWidthPct(s: string, e: string) {
+    const [sh, sm] = s.split(':').map(Number)
+    const [eh, em] = e.split(':').map(Number)
+    return `${Math.max(((eh + em / 60) - (sh + sm / 60)) / G_HOURS * 100 - 0.2, 1)}%`
+  }
 
   const byDay = useMemo(() => {
     const map = new Map<number, LocalSchedule[]>()
@@ -127,25 +140,21 @@ function MonthGridView({
     return map
   }, [schedules, monthPfx])
 
-  // 하루 최대 이벤트 수 → 행 높이 결정
-  const maxEvts  = Math.max(1, ...dayNums.map(d => (byDay.get(d) ?? []).length))
-  const ROW_H    = maxEvts * (EVT_H + 2) + 6  // 이벤트 스택 + 상하 패딩
+  const maxEvts = Math.max(1, ...dayNums.map(d => (byDay.get(d) ?? []).length))
+  const ROW_H   = maxEvts * (EVT_H + 2) + 6
 
   return (
     <div style={{ overflowX: 'auto' }} className="rounded-2xl border border-stone-200 bg-white shadow-sm">
-      <div style={{ minWidth: totalW }}>
+      <div style={{ minWidth: minW }}>
 
-        {/* ── 시간 헤더: column = 시간 (왼→오른) ── */}
-        <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'nowrap',
-                      borderBottom: '1px solid #e7e5e4', backgroundColor: '#fafaf9',
-                      position: 'sticky', top: 0, zIndex: 10 }}>
-          {/* 좌상단 코너 */}
+        {/* ── 시간 헤더 ── */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #e7e5e4',
+                      backgroundColor: '#fafaf9', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ width: DATE_LBL_W, flexShrink: 0, borderRight: '1px solid #e7e5e4' }} />
-          {/* 시간 헤더 셀 */}
           {hours.map(h => (
             <div
               key={h}
-              style={{ width: T_COL_W, flexShrink: 0 }}
+              style={{ flex: 1, minWidth: T_COL_W }}
               className="border-r border-stone-100 text-center py-2 text-[10px] font-semibold text-stone-500"
             >
               {pad2(h)}:00
@@ -153,18 +162,14 @@ function MonthGridView({
           ))}
         </div>
 
-        {/* ── 날짜 행들: row = 날짜 (위→아래) ── */}
+        {/* ── 날짜 행들 ── */}
         {dayNums.map(d => {
           const dateStr = `${year}-${pad2(month)}-${pad2(d)}`
           const evts    = byDay.get(d) ?? []
           const dow     = new Date(year, month - 1, d).getDay()
 
           return (
-            <div
-              key={d}
-              style={{ display: 'flex', flexDirection: 'row', flexWrap: 'nowrap',
-                       borderBottom: '1px solid #f5f5f4' }}
-            >
+            <div key={d} style={{ display: 'flex', borderBottom: '1px solid #f5f5f4' }}>
               {/* 날짜 레이블 */}
               <div
                 style={{ width: DATE_LBL_W, flexShrink: 0, height: ROW_H, borderRight: '1px solid #e7e5e4' }}
@@ -180,35 +185,43 @@ function MonthGridView({
                 </span>
               </div>
 
-              {/* 시간 영역: 이벤트 블록 절대 위치 */}
+              {/* 시간 영역 — flex:1 로 가용 너비 전체를 차지, 이벤트는 % 위치 */}
               <div
-                style={{ width: G_HOURS * T_COL_W, flexShrink: 0,
+                style={{ flex: 1, minWidth: G_HOURS * T_COL_W,
                          position: 'relative', height: ROW_H, cursor: 'pointer' }}
                 className={dow === 0 ? 'bg-red-50/20' : dow === 6 ? 'bg-blue-50/20' : 'hover:bg-stone-50/40'}
                 onClick={() => onCreate(dateStr)}
               >
-                {/* 수직 시간선 (column 구분선) */}
+                {/* 수직 시간선 */}
                 {hours.map((_, i) => (
                   <div
                     key={i}
-                    style={{ position: 'absolute', left: i * T_COL_W, top: 0, bottom: 0,
-                             borderRight: '1px solid rgba(245,245,244,0.9)', pointerEvents: 'none' }}
+                    style={{
+                      position: 'absolute',
+                      left: `${i / G_HOURS * 100}%`,
+                      top: 0, bottom: 0,
+                      borderRight: '1px solid rgba(245,245,244,0.9)',
+                      pointerEvents: 'none',
+                    }}
                   />
                 ))}
 
-                {/* 이벤트 블록: left=시작시간, width=근무시간, 수직 스택 */}
+                {/* 이벤트 블록 */}
                 {evts.map((s, idx) => {
-                  const c      = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
-                  const sName  = staffs.find(st => st.id === s.staffId)?.name ?? ''
-                  const left   = Math.max(timeLeft(s.startTime), 0)
-                  const width  = Math.max(timePxW(s.startTime, s.endTime) - 3, 12)
-                  const top    = 3 + idx * (EVT_H + 2)
+                  const c     = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
+                  const sName = staffs.find(st => st.id === s.staffId)?.name ?? ''
+                  const [sh, sm] = s.startTime.split(':').map(Number)
+                  const [eh, em] = s.endTime.split(':').map(Number)
+                  const durH  = (eh + em / 60) - (sh + sm / 60)
+                  const top   = 3 + idx * (EVT_H + 2)
                   return (
                     <div
                       key={s.id}
                       style={{
                         position: 'absolute',
-                        left, width, top,
+                        left:   evtLeftPct(s.startTime),
+                        width:  evtWidthPct(s.startTime, s.endTime),
+                        top,
                         height: EVT_H,
                         backgroundColor: c.bg,
                         color: c.text,
@@ -219,7 +232,7 @@ function MonthGridView({
                       title={`${sName}  ${s.startTime}–${s.endTime}`}
                     >
                       <span>{sName.slice(0, 2)}</span>
-                      {width >= 80 && <span className="opacity-60 font-normal text-[8px]">{s.startTime}–{s.endTime}</span>}
+                      {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{s.startTime}–{s.endTime}</span>}
                     </div>
                   )
                 })}
