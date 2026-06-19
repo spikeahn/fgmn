@@ -190,7 +190,7 @@ export default function ChecklistPage() {
     items.filter(i =>
       i.tab === activeTab &&
       i.is_active &&
-      (i.start_date === null || i.start_date <= selectedDate)
+      (i.start_date == null || i.start_date <= selectedDate)
     ).sort((a, b) => a.order - b.order),
     [items, activeTab, selectedDate]
   )
