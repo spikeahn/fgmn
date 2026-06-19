@@ -10,7 +10,8 @@ const NAV_BASE = [
 ]
 const NAV_ADMIN = [
   ...NAV_BASE,
-  { label: '근무리포트', href: '/report' },
+  { label: '근무리포트', href: '/report'  },
+  { label: '직원관리',   href: '/staff'   },
 ]
 
 const SECRET_TAP = 5

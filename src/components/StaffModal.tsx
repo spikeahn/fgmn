@@ -22,11 +22,12 @@ export const COLOR_PALETTE = [
 // ── 타입 ─────────────────────────────────────────────────
 
 export interface StaffItem {
-  id:          string
-  name:        string
-  hourly_wage: number
-  is_active:   boolean
-  color_index: number | null
+  id:               string
+  name:             string
+  hourly_wage:      number
+  is_active:        boolean
+  color_index:      number | null
+  visa_expiry_date?: string | null
 }
 
 // ── 직원 관리 모달 ────────────────────────────────────────
@@ -134,19 +135,21 @@ function StaffEditForm({
   onSave:   (s: StaffItem) => void
   onCancel: () => void
 }) {
-  const [name,       setName]       = useState(staff?.name ?? '')
-  const [wage,       setWage]       = useState(String(staff?.hourly_wage ?? ''))
-  const [colorIndex, setColorIndex] = useState<number>(staff?.color_index ?? 0)
+  const [name,        setName]        = useState(staff?.name ?? '')
+  const [wage,        setWage]        = useState(String(staff?.hourly_wage ?? ''))
+  const [colorIndex,  setColorIndex]  = useState<number>(staff?.color_index ?? 0)
+  const [visaExpiry,  setVisaExpiry]  = useState(staff?.visa_expiry_date ?? '')
 
   function handleSave() {
     const wageNum = Number(wage.replace(/,/g, ''))
     if (!name.trim() || isNaN(wageNum) || wageNum <= 0) return
     onSave({
-      id:          staff?.id ?? `new-${Date.now()}`,
-      name:        name.trim(),
-      hourly_wage: wageNum,
-      is_active:   staff?.is_active ?? true,
-      color_index: colorIndex,
+      id:               staff?.id ?? `new-${Date.now()}`,
+      name:             name.trim(),
+      hourly_wage:      wageNum,
+      is_active:        staff?.is_active ?? true,
+      color_index:      colorIndex,
+      visa_expiry_date: visaExpiry || null,
     })
   }
 
@@ -181,6 +184,16 @@ function StaffEditForm({
             className="w-full rounded-xl border border-stone-200 bg-stone-50 py-3 pl-8 pr-4 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
           />
         </div>
+      </div>
+
+      <div className="mb-4">
+        <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-stone-400">비자 만료일</label>
+        <input
+          type="date"
+          value={visaExpiry}
+          onChange={e => setVisaExpiry(e.target.value)}
+          className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+        />
       </div>
 
       <div className="mb-6">

@@ -784,6 +784,7 @@ export default function SchedulePage() {
   // ── 캘린더 이벤트 핸들러 ────────────────────────────────
 
   const onSelectSlot = useCallback((slotInfo: { start: Date }) => {
+    if (!isAdmin) return
     const date = format(slotInfo.start, 'yyyy-MM-dd')
     setForm(f => ({
       staffId:   staffs[0]?.id ?? f.staffId,
@@ -796,6 +797,7 @@ export default function SchedulePage() {
   }, [shiftDefaults, staffs])
 
   const onSelectEvent = useCallback((event: CalEvent) => {
+    if (!isAdmin) return
     const s = event.resource
     setForm({ staffId: s.staffId, shiftType: s.shiftType, startTime: s.startTime, endTime: s.endTime, note: s.note })
     setModal({ mode: 'edit', schedule: s })
@@ -947,10 +949,12 @@ export default function SchedulePage() {
   }
 
   function onMonthEdit(s: LocalSchedule) {
+    if (!isAdmin) return
     setForm({ staffId: s.staffId, shiftType: s.shiftType, startTime: s.startTime, endTime: s.endTime, note: s.note })
     setModal({ mode: 'edit', schedule: s })
   }
   function onMonthCreate(date: string) {
+    if (!isAdmin) return
     setForm({
       staffId:   staffs.find(s => s.is_active)?.id ?? '',
       shiftType: '오픈',
@@ -966,6 +970,7 @@ export default function SchedulePage() {
   const onEventDrop = useCallback(async ({ event, start, end }: {
     event: CalEvent; start: Date | string; end: Date | string
   }) => {
+    if (!isAdmin) return
     const s = event.resource
     const st = start instanceof Date ? start : new Date(start)
     const en = end   instanceof Date ? end   : new Date(end)
@@ -981,11 +986,12 @@ export default function SchedulePage() {
     setSchedules(prev => prev.map(sc => sc.id === s.id
       ? { ...sc, date: newDate, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
       : sc))
-  }, [])
+  }, [isAdmin])
 
   const onEventResize = useCallback(async ({ event, start, end }: {
     event: CalEvent; start: Date | string; end: Date | string
   }) => {
+    if (!isAdmin) return
     const s = event.resource
     const st = start instanceof Date ? start : new Date(start)
     const en = end   instanceof Date ? end   : new Date(end)
@@ -1001,13 +1007,14 @@ export default function SchedulePage() {
     setSchedules(prev => prev.map(sc => sc.id === s.id
       ? { ...sc, date: newDate, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
       : sc))
-  }, [])
+  }, [isAdmin])
 
   // ── 월간 DnD 핸들러 ─────────────────────────────────────
 
   const handleMonthMove = useCallback(async (
     id: string, newDate: string, newStart: string, newEnd: string
   ) => {
+    if (!isAdmin) return
     const newShiftType   = inferShiftType(newStart)
     const recorded_hours = timeToHours(newStart, newEnd)
     await supabase.from('schedules').update({
@@ -1017,11 +1024,12 @@ export default function SchedulePage() {
     setSchedules(prev => prev.map(s => s.id === id
       ? { ...s, date: newDate, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
       : s))
-  }, [])
+  }, [isAdmin])
 
   const handleMonthResize = useCallback(async (
     id: string, _date: string, newStart: string, newEnd: string
   ) => {
+    if (!isAdmin) return
     const newShiftType   = inferShiftType(newStart)
     const recorded_hours = timeToHours(newStart, newEnd)
     await supabase.from('schedules').update({
@@ -1031,7 +1039,7 @@ export default function SchedulePage() {
     setSchedules(prev => prev.map(s => s.id === id
       ? { ...s, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
       : s))
-  }, [])
+  }, [isAdmin])
 
   // ── 렌더 ────────────────────────────────────────────────
 
@@ -1116,7 +1124,7 @@ export default function SchedulePage() {
             >
               {view === 'week' ? '이번 주' : '이번 달'}
             </button>
-            <button
+            {isAdmin && <button
               onClick={() => setShowSettings(v => !v)}
               title="시간 설정"
               className={`shrink-0 rounded-xl border p-2 shadow-sm transition-colors active:scale-95 ${
@@ -1127,12 +1135,12 @@ export default function SchedulePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.108-1.204l-.526-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-            </button>
+            </button>}
           </div>
         </div>
 
         {/* ── 시간 설정 패널 ── */}
-        {showSettings && (
+        {isAdmin && showSettings && (
           <div className="mb-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
             <div className="mb-3 flex items-start justify-between">
               <div>
@@ -1226,7 +1234,7 @@ export default function SchedulePage() {
         {/* ── 뷰 영역 ── */}
         {view === 'week' ? (
           <>
-            <DnDCalendar
+            {isAdmin ? <DnDCalendar
               localizer={localizer}
               events={filteredEvents}
               defaultView="week"
@@ -1250,7 +1258,27 @@ export default function SchedulePage() {
                 toolbar: () => null,
                 event: CalEventCard as (props: object) => React.ReactElement,
               }}
-            />
+            /> : <Calendar
+              localizer={localizer}
+              events={filteredEvents}
+              defaultView="week"
+              views={['week']}
+              date={calDate}
+              onNavigate={setCalDate}
+              culture="ko"
+              selectable={false}
+              eventPropGetter={eventPropGetter as (event: object) => object}
+              formats={calFormats as object}
+              min={new Date(0, 0, 0, 9, 0)}
+              max={new Date(0, 0, 0, 23, 0)}
+              step={60}
+              timeslots={1}
+              style={{ height: 'calc(100vh - 280px)', minHeight: 540 }}
+              components={{
+                toolbar: () => null,
+                event: CalEventCard as (props: object) => React.ReactElement,
+              }}
+            />}
 
             {/* ── 이번 주 배정 시간 통계 ── */}
             {isAdmin && <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">

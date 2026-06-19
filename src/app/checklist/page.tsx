@@ -89,6 +89,11 @@ export default function ChecklistPage() {
   const [showStaffMgr, setShowStaffMgr] = useState(false)
   const [editingStaff, setEditingStaff] = useState<LocalStaff | 'new' | null>(null)
 
+  // ── 편집 모드 비밀번호 ───────────────────────────────────
+  const [showEditPw,   setShowEditPw]   = useState(false)
+  const [editPw,       setEditPw]       = useState('')
+  const [editPwShake,  setEditPwShake]  = useState(false)
+
   const touchStartX = useRef<number | null>(null)
   const touchStartY = useRef<number | null>(null)
 
@@ -486,7 +491,13 @@ export default function ChecklistPage() {
               <button key={t} onClick={() => switchTab(t)} className={`rounded-lg px-6 py-2 text-sm font-bold transition-all duration-200 ${activeTab === t ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>{t}</button>
             ))}
           </div>
-          <button onClick={() => { setEditMode(e => !e); setDeletingId(null) }} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${editMode ? 'bg-amber-500 text-white shadow-sm' : 'border border-stone-200 bg-white text-stone-500 hover:bg-stone-50'}`}>
+          <button
+            onClick={() => {
+              if (editMode) { setEditMode(false); setDeletingId(null) }
+              else { setEditPw(''); setShowEditPw(true) }
+            }}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${editMode ? 'bg-amber-500 text-white shadow-sm' : 'border border-stone-200 bg-white text-stone-500 hover:bg-stone-50'}`}
+          >
             {editMode ? '편집 완료' : '편집 모드'}
           </button>
         </div>
@@ -605,6 +616,53 @@ export default function ChecklistPage() {
 
       {editingItem !== null && (
         <ItemEditModal item={editingItem === 'new' ? null : editingItem} defaultTab={activeTab} onSave={saveItem} onClose={() => setEditingItem(null)} />
+      )}
+
+      {/* ── 편집 모드 비밀번호 모달 ── */}
+      {showEditPw && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={() => setShowEditPw(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className={`w-72 rounded-2xl bg-white p-6 shadow-2xl ${editPwShake ? 'animate-shake' : ''}`}
+              onClick={e => e.stopPropagation()}
+            >
+              <p className="mb-1 text-center text-base font-extrabold text-stone-800">편집 모드</p>
+              <p className="mb-5 text-center text-xs text-stone-400">비밀번호를 입력하세요</p>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={editPw}
+                autoFocus
+                onChange={e => setEditPw(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    if (editPw === '1234') { setEditMode(true); setShowEditPw(false); setEditPw('') }
+                    else { setEditPwShake(true); setEditPw(''); setTimeout(() => setEditPwShake(false), 500) }
+                  }
+                }}
+                placeholder="• • • •"
+                className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-center text-2xl tracking-[0.5em] outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+              <div className="mt-4 flex gap-2">
+                <button onClick={() => { setShowEditPw(false); setEditPw('') }}
+                  className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm font-semibold text-stone-500 hover:bg-stone-50">
+                  취소
+                </button>
+                <button
+                  onClick={() => {
+                    if (editPw === '1234') { setEditMode(true); setShowEditPw(false); setEditPw('') }
+                    else { setEditPwShake(true); setEditPw(''); setTimeout(() => setEditPwShake(false), 500) }
+                  }}
+                  className="flex-1 rounded-xl bg-amber-400 py-2.5 text-sm font-extrabold text-white hover:bg-amber-500"
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {showStaffMgr && (
