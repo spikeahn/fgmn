@@ -25,7 +25,7 @@ const localizer = dateFnsLocalizer({
 // ── 초기 기본값 (변경해도 기존 일정에 영향 없음) ─────────
 
 const DEFAULT_TIMES: Record<ShiftType, { start: string; end: string }> = {
-  '오픈': { start: '08:00', end: '14:00' },
+  '오픈': { start: '09:30', end: '15:30' },
   '미들': { start: '12:00', end: '18:00' },
   '마감': { start: '16:00', end: '22:00' },
 }
@@ -75,7 +75,7 @@ type ShiftDefaults = Record<ShiftType, { start: string; end: string }>
 // ── 월간 그리드 상수 / 헬퍼 ──────────────────────────────
 // 레이아웃: column = 시간(07~22), row = 날짜(1일~말일)
 
-const G_START    = 7     // 07:00
+const G_START    = 9     // 09:00
 const G_END      = 23    // 23:00
 const G_HOURS    = G_END - G_START   // 16 슬롯
 
@@ -151,8 +151,6 @@ function MonthGridView({
               {pad2(h)}:00
             </div>
           ))}
-          {/* 23:00 마지막 레이블 */}
-          <div className="w-8 text-center py-2 text-[10px] font-semibold text-stone-400">23</div>
         </div>
 
         {/* ── 날짜 행들: row = 날짜 (위→아래) ── */}
@@ -558,75 +556,68 @@ export default function SchedulePage() {
       <div className="mx-auto max-w-6xl">
 
         {/* ── 상단 네비게이션 ── */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-3xl font-bold tracking-tight text-stone-800">근무표</h1>
+        <div className="mb-4 space-y-2">
 
-          <div className="flex items-center gap-2">
-            {/* 뷰 토글 */}
-            <div className="flex rounded-xl bg-stone-100 p-1">
-              {(['week', 'month'] as const).map(v => (
+          {/* 1행: 제목 + 뷰 토글 + 직원관리 */}
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-stone-800">근무표</h1>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-xl bg-stone-100 p-1">
+                {(['week', 'month'] as const).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setView(v)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-bold transition-all ${
+                      view === v ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
+                    }`}
+                  >
+                    {v === 'week' ? '주간' : '월간'}
+                  </button>
+                ))}
+              </div>
+              {isAdmin && (
                 <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-bold transition-all ${
-                    view === v ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
-                  }`}
+                  onClick={() => setShowStaffMgr(true)}
+                  className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-600 shadow-sm hover:bg-stone-50 active:scale-95"
                 >
-                  {v === 'week' ? '주간' : '월간'}
+                  직원 관리
                 </button>
-              ))}
+              )}
             </div>
+          </div>
 
-            {/* 직원 관리 (관리자 전용) */}
-            {isAdmin && (
-              <button
-                onClick={() => setShowStaffMgr(true)}
-                className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-600 shadow-sm hover:bg-stone-50 active:scale-95"
-              >
-                직원 관리
-              </button>
-            )}
-
-            {/* 이동 */}
-            <button onClick={goBack} className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90">
+          {/* 2행: 이동 + 날짜 레이블 + 이번주/달 + 시간설정 */}
+          <div className="flex items-center gap-2">
+            <button onClick={goBack} className="shrink-0 rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
               </svg>
             </button>
-
-            <div className="min-w-[200px] rounded-xl border border-stone-200 bg-white px-4 py-2 text-center shadow-sm">
-              <span className="text-sm font-semibold text-stone-700">{navLabel}</span>
+            <div className="flex-1 min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2 text-center shadow-sm">
+              <span className="text-sm font-semibold text-stone-700 truncate">{navLabel}</span>
             </div>
-
-            <button onClick={goForward} className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90">
+            <button onClick={goForward} className="shrink-0 rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
               </svg>
             </button>
-
             <button
               onClick={() => setCalDate(new Date())}
-              className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm hover:bg-amber-100 active:scale-95"
+              className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 shadow-sm hover:bg-amber-100 active:scale-95"
             >
               {view === 'week' ? '이번 주' : '이번 달'}
             </button>
-
-            {/* 시간 설정 토글 */}
             <button
               onClick={() => setShowSettings(v => !v)}
-              className={`rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm transition-colors active:scale-95 ${
-                showSettings
-                  ? 'border-stone-400 bg-stone-700 text-white'
-                  : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
+              title="시간 설정"
+              className={`shrink-0 rounded-xl border p-2 shadow-sm transition-colors active:scale-95 ${
+                showSettings ? 'border-stone-400 bg-stone-700 text-white' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
               }`}
             >
-              <span className="flex items-center gap-1.5">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.108-1.204l-.526-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                시간 설정
-              </span>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.108-1.204l-.526-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
             </button>
           </div>
         </div>
@@ -726,7 +717,7 @@ export default function SchedulePage() {
               onSelectEvent={onSelectEvent as (event: object) => void}
               eventPropGetter={eventPropGetter as (event: object) => object}
               formats={calFormats as object}
-              min={new Date(0, 0, 0, 7, 0)}
+              min={new Date(0, 0, 0, 9, 0)}
               max={new Date(0, 0, 0, 23, 0)}
               step={60}
               timeslots={1}
