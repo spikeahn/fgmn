@@ -1253,7 +1253,7 @@ export default function SchedulePage() {
             />
 
             {/* ── 이번 주 배정 시간 통계 ── */}
-            <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+            {isAdmin && <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
               <div className="border-b border-stone-100 bg-stone-50 px-5 py-3 flex items-center justify-between">
                 <span className="text-sm font-bold text-stone-700">이번 주 배정 현황</span>
                 <span className="text-xs text-stone-400">{weekLabel}</span>
@@ -1277,7 +1277,7 @@ export default function SchedulePage() {
                   <span className="font-bold text-stone-700">{weekStats.reduce((a, s) => a + s.count, 0)}회</span> 배정
                 </span>
               </div>
-            </div>
+            </div>}
           </>
         ) : (
           <>
@@ -1294,7 +1294,7 @@ export default function SchedulePage() {
             />
 
             {/* ── 이번 달 배정 현황 ── */}
-            <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+            {isAdmin && <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
               <div className="border-b border-stone-100 bg-stone-50 px-5 py-3 flex items-center justify-between">
                 <span className="text-sm font-bold text-stone-700">이번 달 배정 현황</span>
                 <span className="text-xs text-stone-400">{monthLabel}</span>
@@ -1318,7 +1318,7 @@ export default function SchedulePage() {
                   <span className="font-bold text-stone-700">{monthStats.reduce((a, s) => a + s.count, 0)}회</span> 배정
                 </span>
               </div>
-            </div>
+            </div>}
           </>
         )}
 
