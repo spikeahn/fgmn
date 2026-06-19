@@ -4,15 +4,23 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { calculateWeeklySalary, type WeeklySalaryResult } from '@/lib/salaryCalculator'
 
-// ── 조회 기간 ────────────────────────────────────────────
+// ── 헬퍼 ──────────────────────────────────────────────────
 
-const WEEKS = [
-  { label: '1주차', range: '6/1 – 6/7',   start: '2026-06-01', end: '2026-06-07' },
-  { label: '2주차', range: '6/8 – 6/14',  start: '2026-06-08', end: '2026-06-14' },
-  { label: '3주차', range: '6/15 – 6/21', start: '2026-06-15', end: '2026-06-21' },
-]
+function pad2(n: number) { return String(n).padStart(2, '0') }
 
-// ── 타입 ─────────────────────────────────────────────────
+interface WeekDef { label: string; range: string; start: string; end: string }
+
+function getMonthWeeks(year: number, month: number): WeekDef[] {
+  const lastDay = new Date(year, month, 0).getDate()
+  return [
+    { label: '1주차', range: `${month}/1–7`,              start: `${year}-${pad2(month)}-01`, end: `${year}-${pad2(month)}-07` },
+    { label: '2주차', range: `${month}/8–14`,             start: `${year}-${pad2(month)}-08`, end: `${year}-${pad2(month)}-14` },
+    { label: '3주차', range: `${month}/15–21`,            start: `${year}-${pad2(month)}-15`, end: `${year}-${pad2(month)}-21` },
+    { label: '4주차', range: `${month}/22–${lastDay}`,    start: `${year}-${pad2(month)}-22`, end: `${year}-${pad2(month)}-${pad2(lastDay)}` },
+  ]
+}
+
+// ── 타입 ──────────────────────────────────────────────────
 
 interface DbStaff    { id: string; name: string; hourly_wage: number; is_active: boolean }
 interface DbSchedule { id: string; staff_id: string; date: string; shift_type: string | null; note: string | null; recorded_hours: number }
@@ -35,14 +43,83 @@ interface StaffReport {
   monthlyTotal:   number
 }
 
-// ── 서브 컴포넌트 ─────────────────────────────────────────
+// ── 계산 ──────────────────────────────────────────────────
 
-function KPI({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+function buildReport(staffList: DbStaff[], schedules: DbSchedule[], weeks: WeekDef[]): StaffReport[] {
+  return staffList.filter(s => s.is_active).map(staff => {
+    const hoursAccum: number[] = []
+
+    const weekRows: WeekRow[] = weeks.map(week => {
+      const thisWeek = schedules.filter(
+        s => s.staff_id === staff.id && s.date >= week.start && s.date <= week.end
+      )
+      const weeklyHours = thisWeek.reduce((acc, s) => acc + Number(s.recorded_hours ?? 0), 0)
+      const result = calculateWeeklySalary({ weeklyHours, recentWeeksHours: [...hoursAccum], hourlyWage: staff.hourly_wage })
+      hoursAccum.push(weeklyHours)
+      return {
+        ...result,
+        label:     week.label,
+        range:     week.range,
+        days:      thisWeek.length,
+        shiftList: thisWeek.sort((a, b) => a.date.localeCompare(b.date)).map(s => s.shift_type ?? ''),
+      }
+    })
+
+    const monthlyHours   = weekRows.reduce((a, w) => a + w.weeklyHours, 0)
+    const monthlyRegular = weekRows.reduce((a, w) => a + w.regularPay, 0)
+    const monthlyHoliday = weekRows.reduce((a, w) => a + w.holidayPay, 0)
+
+    return {
+      id: staff.id, name: staff.name, hourlyWage: staff.hourly_wage,
+      weeks: weekRows, monthlyHours, monthlyRegular, monthlyHoliday,
+      monthlyTotal: monthlyRegular + monthlyHoliday,
+    }
+  })
+}
+
+// ── CSV 내보내기 ───────────────────────────────────────────
+
+function exportCSV(report: StaffReport[], year: number, month: number) {
+  const header = ['직원', '시급', '주차', '기간', '일수', '근무시간(h)', '기본급(₩)', '주휴수당(₩)', '합계(₩)']
+  const rows: string[][] = [header]
+
+  for (const staff of report) {
+    for (const w of staff.weeks) {
+      rows.push([
+        staff.name, String(staff.hourlyWage),
+        w.label, w.range,
+        String(w.days), String(w.weeklyHours),
+        String(w.regularPay), String(w.holidayPay), String(w.totalPay),
+      ])
+    }
+    rows.push([
+      staff.name, '',
+      '월간합계', '',
+      String(staff.weeks.reduce((a, w) => a + w.days, 0)),
+      String(staff.monthlyHours),
+      String(staff.monthlyRegular), String(staff.monthlyHoliday), String(staff.monthlyTotal),
+    ])
+    rows.push(Array(header.length).fill(''))
+  }
+
+  // BOM 포함 → 한글 엑셀에서 깨짐 없음
+  const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\r\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `급여리포트_${year}년_${month}월.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── 서브 컴포넌트 ──────────────────────────────────────────
+
+function KPI({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className={`rounded-2xl border p-4 ${accent ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-white'}`}>
       <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">{label}</p>
       <p className={`mt-1 text-xl font-extrabold ${accent ? 'text-amber-700' : 'text-stone-800'}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-stone-400">{sub}</p>}
     </div>
   )
 }
@@ -63,65 +140,37 @@ function ShiftPips({ list }: { list: string[] }) {
   )
 }
 
-// ── 계산 함수 ─────────────────────────────────────────────
-
-function buildReport(staffList: DbStaff[], schedules: DbSchedule[]): StaffReport[] {
-  return staffList.filter(s => s.is_active).map(staff => {
-    const hoursAccum: number[] = []
-
-    const weeks: WeekRow[] = WEEKS.map(week => {
-      const thisWeek = schedules.filter(
-        s => s.staff_id === staff.id && s.date >= week.start && s.date <= week.end
-      )
-      const weeklyHours = thisWeek.reduce((acc, s) => acc + Number(s.recorded_hours ?? 0), 0)
-
-      const result = calculateWeeklySalary({
-        weeklyHours,
-        recentWeeksHours: [...hoursAccum],
-        hourlyWage: staff.hourly_wage,
-      })
-      hoursAccum.push(weeklyHours)
-
-      return {
-        ...result,
-        label:     week.label,
-        range:     week.range,
-        days:      thisWeek.length,
-        shiftList: thisWeek.sort((a, b) => a.date.localeCompare(b.date)).map(s => s.shift_type ?? ''),
-      }
-    })
-
-    const monthlyHours   = weeks.reduce((a, w) => a + w.weeklyHours, 0)
-    const monthlyRegular = weeks.reduce((a, w) => a + w.regularPay, 0)
-    const monthlyHoliday = weeks.reduce((a, w) => a + w.holidayPay, 0)
-
-    return { id: staff.id, name: staff.name, hourlyWage: staff.hourly_wage, weeks, monthlyHours, monthlyRegular, monthlyHoliday, monthlyTotal: monthlyRegular + monthlyHoliday }
-  })
-}
-
 // ── 메인 페이지 ──────────────────────────────────────────
 
 export default function ReportPage() {
-  const [staffList,  setStaffList]  = useState<DbStaff[]>([])
-  const [schedules,  setSchedules]  = useState<DbSchedule[]>([])
-  const [loading,    setLoading]    = useState(true)
+  const today = new Date()
+  const [year,      setYear]      = useState(today.getFullYear())
+  const [month,     setMonth]     = useState(today.getMonth() + 1)
+  const [staffList, setStaffList] = useState<DbStaff[]>([])
+  const [schedules, setSchedules] = useState<DbSchedule[]>([])
+  const [loading,   setLoading]   = useState(true)
+
+  const weeks = useMemo(() => getMonthWeeks(year, month), [year, month])
 
   useEffect(() => {
     async function load() {
       setLoading(true)
+      const w = getMonthWeeks(year, month)
       const [{ data: staffData }, { data: schData }] = await Promise.all([
         supabase.from('staffs').select('*').order('name'),
-        supabase.from('schedules').select('id, staff_id, date, shift_type, note, recorded_hours')
-          .gte('date', WEEKS[0].start).lte('date', WEEKS[WEEKS.length - 1].end),
+        supabase.from('schedules')
+          .select('id, staff_id, date, shift_type, note, recorded_hours')
+          .gte('date', w[0].start)
+          .lte('date', w[w.length - 1].end),
       ])
-      if (staffData)  setStaffList(staffData as DbStaff[])
-      if (schData)    setSchedules(schData as DbSchedule[])
+      if (staffData) setStaffList(staffData as DbStaff[])
+      if (schData)   setSchedules(schData as DbSchedule[])
       setLoading(false)
     }
     load()
-  }, [])
+  }, [year, month])
 
-  const report = useMemo(() => buildReport(staffList, schedules), [staffList, schedules])
+  const report = useMemo(() => buildReport(staffList, schedules, weeks), [staffList, schedules, weeks])
 
   const grand = useMemo(() => ({
     hours:   report.reduce((a, d) => a + d.monthlyHours,   0),
@@ -129,6 +178,15 @@ export default function ReportPage() {
     holiday: report.reduce((a, d) => a + d.monthlyHoliday, 0),
     total:   report.reduce((a, d) => a + d.monthlyTotal,   0),
   }), [report])
+
+  function prevMonth() {
+    if (month === 1) { setYear(y => y - 1); setMonth(12) }
+    else setMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (month === 12) { setYear(y => y + 1); setMonth(1) }
+    else setMonth(m => m + 1)
+  }
 
   if (loading) {
     return (
@@ -145,13 +203,58 @@ export default function ReportPage() {
     <main className="min-h-screen bg-[#FAF8F5] px-6 py-8">
       <div className="mx-auto max-w-4xl">
 
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight text-stone-800">근무내역 리포트</h1>
-          <p className="mt-1 text-sm text-stone-400">
-            2026년 6월 1일 – 21일 (3주) &nbsp;·&nbsp; 재직 중 직원 {report.length}명
-          </p>
+        {/* ── 헤더 ── */}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-stone-800">근무내역 리포트</h1>
+            <p className="mt-1 text-sm text-stone-400">재직 중 직원 {report.length}명</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* 월 네비게이션 */}
+            <button
+              onClick={prevMonth}
+              className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+
+            <div className="min-w-[110px] rounded-xl border border-stone-200 bg-white px-4 py-2 text-center shadow-sm">
+              <span className="text-sm font-semibold text-stone-700">{year}년 {month}월</span>
+            </div>
+
+            <button
+              onClick={nextMonth}
+              className="rounded-xl border border-stone-200 bg-white p-2 text-stone-500 shadow-sm hover:bg-stone-50 active:scale-90"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+
+            <button
+              onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth() + 1) }}
+              className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm hover:bg-amber-100 active:scale-95"
+            >
+              이번 달
+            </button>
+
+            {/* CSV 내보내기 */}
+            <button
+              onClick={() => exportCSV(report, year, month)}
+              className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-600 shadow-sm hover:bg-stone-50 active:scale-95"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              CSV 저장
+            </button>
+          </div>
         </div>
 
+        {/* ── KPI ── */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <KPI label="총 근무시간"   value={`${grand.hours}h`} />
           <KPI label="기본급 합계"   value={`₩${grand.regular.toLocaleString()}`} />
@@ -159,12 +262,15 @@ export default function ReportPage() {
           <KPI label="지급 총액"     value={`₩${grand.total.toLocaleString()}`} accent />
         </div>
 
+        {/* ── 직원별 카드 ── */}
         {report.map(staff => (
           <div key={staff.id} className="mb-5 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
             <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-5 py-3">
               <div className="flex items-center gap-2.5">
                 <span className="text-base font-extrabold text-stone-800">{staff.name}</span>
-                <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-stone-500 ring-1 ring-stone-200">시급 ₩{staff.hourlyWage.toLocaleString()}</span>
+                <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-stone-500 ring-1 ring-stone-200">
+                  시급 ₩{staff.hourlyWage.toLocaleString()}
+                </span>
               </div>
               <div className="text-right">
                 <span className="text-xs text-stone-400">월간 지급액</span>
@@ -194,14 +300,18 @@ export default function ReportPage() {
                         <p className="text-[11px] text-stone-400">{week.range}</p>
                       </td>
                       <td className="px-4 py-3">
-                        {week.days === 0 ? <span className="text-xs text-stone-300">근무 없음</span> : <ShiftPips list={week.shiftList} />}
+                        {week.days === 0
+                          ? <span className="text-xs text-stone-300">근무 없음</span>
+                          : <ShiftPips list={week.shiftList} />}
                       </td>
                       <td className="px-4 py-3 text-right text-stone-600">{week.days}일</td>
                       <td className="px-4 py-3 text-right font-semibold text-stone-700">{week.weeklyHours}h</td>
                       <td className="px-4 py-3 text-right text-xs text-stone-400">{week.avgHours}h</td>
                       <td className="px-4 py-3 text-right text-stone-600">₩{week.regularPay.toLocaleString()}</td>
                       <td className="px-4 py-3 text-right">
-                        {week.qualifies ? <span className="font-semibold text-amber-600">+₩{week.holidayPay.toLocaleString()}</span> : <span className="text-xs text-stone-300">{week.weeklyHours > 0 ? '15h 미만' : '–'}</span>}
+                        {week.qualifies
+                          ? <span className="font-semibold text-amber-600">+₩{week.holidayPay.toLocaleString()}</span>
+                          : <span className="text-xs text-stone-300">{week.weeklyHours > 0 ? '15h 미만' : '–'}</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-stone-800">₩{week.totalPay.toLocaleString()}</td>
                     </tr>
@@ -221,6 +331,7 @@ export default function ReportPage() {
           </div>
         ))}
 
+        {/* ── 전체 인건비 합계 ── */}
         <div className="overflow-hidden rounded-2xl border-2 border-amber-200 bg-amber-50">
           <div className="border-b border-amber-100 px-5 py-3">
             <span className="font-extrabold text-amber-900">전체 인건비 합계</span>
