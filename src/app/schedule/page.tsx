@@ -395,6 +395,7 @@ export default function SchedulePage() {
   const [bulkFrom,       setBulkFrom]       = useState('')
   const [bulkTo,         setBulkTo]         = useState('')
   const [bulkLoading,    setBulkLoading]    = useState(false)
+  const [filterStaffId, setFilterStaffId] = useState<string | null>(null)
 
   // ── Supabase 로드 ─────────────────────────────────────────
 
@@ -466,6 +467,27 @@ export default function SchedulePage() {
       : 0,
     [schedules, bulkFrom, bulkTo],
   )
+
+  const filteredEvents = useMemo<CalEvent[]>(
+    () => filterStaffId ? events.filter(e => e.resource.staffId === filterStaffId) : events,
+    [events, filterStaffId],
+  )
+
+  const filteredSchedules = useMemo(
+    () => filterStaffId ? schedules.filter(s => s.staffId === filterStaffId) : schedules,
+    [schedules, filterStaffId],
+  )
+
+  const monthStats = useMemo(() => {
+    const year     = calDate.getFullYear()
+    const month    = calDate.getMonth() + 1
+    const monthPfx = `${year}-${String(month).padStart(2, '0')}`
+    return staffs.map(staff => {
+      const rows  = schedules.filter(s => s.staffId === staff.id && s.date.startsWith(monthPfx))
+      const hours = rows.reduce((acc, s) => acc + timeToHours(s.startTime, s.endTime), 0)
+      return { staff, hours, count: rows.length }
+    })
+  }, [calDate, schedules, staffs])
 
   // 직원 관리
   async function saveStaff(staff: StaffBasic) {
@@ -848,21 +870,34 @@ export default function SchedulePage() {
           </div>
         )}
 
-        {/* ── 직원 범례 ── */}
+        {/* ── 직원 범례 (클릭 → 필터) ── */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {staffs.map((staff, i) => {
-            const c = staffColorMap.get(staff.id) ?? COLOR_PALETTE[i % COLOR_PALETTE.length]
+            const c        = staffColorMap.get(staff.id) ?? COLOR_PALETTE[i % COLOR_PALETTE.length]
+            const selected = filterStaffId === staff.id
+            const dimmed   = filterStaffId !== null && !selected
             return (
-              <span
+              <button
                 key={staff.id}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1"
-                style={{ backgroundColor: c.bg, color: c.text, ringColor: c.dot } as React.CSSProperties}
+                onClick={() => setFilterStaffId(prev => prev === staff.id ? null : staff.id)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 transition-all active:scale-95 ${
+                  selected ? 'ring-2 shadow-sm scale-105' : 'hover:opacity-80'
+                } ${dimmed ? 'opacity-30' : ''}`}
+                style={{ backgroundColor: c.bg, color: c.text } as React.CSSProperties}
               >
                 <span className="h-2 w-2 rounded-full" style={{ background: c.dot }} />
                 {staff.name}
-              </span>
+              </button>
             )
           })}
+          {filterStaffId !== null && (
+            <button
+              onClick={() => setFilterStaffId(null)}
+              className="rounded-full border border-stone-300 bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-500 hover:bg-stone-200 active:scale-95"
+            >
+              전체 보기
+            </button>
+          )}
         </div>
 
         {/* ── 뷰 영역 ── */}
@@ -870,7 +905,7 @@ export default function SchedulePage() {
           <>
             <Calendar
               localizer={localizer}
-              events={events}
+              events={filteredEvents}
               defaultView="week"
               views={['week']}
               date={calDate}
@@ -920,15 +955,44 @@ export default function SchedulePage() {
             </div>
           </>
         ) : (
-          <MonthGridView
-            schedules={schedules}
-            staffs={staffs}
-            staffColorMap={staffColorMap}
-            year={calDate.getFullYear()}
-            month={calDate.getMonth() + 1}
-            onEdit={onMonthEdit}
-            onCreate={onMonthCreate}
-          />
+          <>
+            <MonthGridView
+              schedules={filteredSchedules}
+              staffs={staffs}
+              staffColorMap={staffColorMap}
+              year={calDate.getFullYear()}
+              month={calDate.getMonth() + 1}
+              onEdit={onMonthEdit}
+              onCreate={onMonthCreate}
+            />
+
+            {/* ── 이번 달 배정 현황 ── */}
+            <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+              <div className="border-b border-stone-100 bg-stone-50 px-5 py-3 flex items-center justify-between">
+                <span className="text-sm font-bold text-stone-700">이번 달 배정 현황</span>
+                <span className="text-xs text-stone-400">{monthLabel}</span>
+              </div>
+              <div className="grid grid-cols-2 divide-x divide-y divide-stone-100 sm:grid-cols-4 lg:grid-cols-7">
+                {monthStats.map(({ staff, hours, count }) => {
+                  const c = staffColorMap.get(staff.id) ?? COLOR_PALETTE[0]
+                  return (
+                    <div key={staff.id} className="flex flex-col items-center gap-1 px-3 py-4">
+                      <span className="mb-1 h-2.5 w-2.5 rounded-full" style={{ background: c.dot }} />
+                      <span className="text-xs font-semibold text-stone-700">{staff.name}</span>
+                      <span className="text-xl font-extrabold" style={{ color: c.text }}>{hours}h</span>
+                      <span className="text-[11px] text-stone-400">{count}회 배정</span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="border-t border-stone-100 bg-stone-50 px-5 py-2.5 flex items-center gap-4">
+                <span className="text-xs text-stone-500">
+                  총 <span className="font-bold text-stone-700">{monthStats.reduce((a, s) => a + s.hours, 0)}h</span> ·{' '}
+                  <span className="font-bold text-stone-700">{monthStats.reduce((a, s) => a + s.count, 0)}회</span> 배정
+                </span>
+              </div>
+            </div>
+          </>
         )}
 
       </div>
