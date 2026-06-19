@@ -27,11 +27,16 @@ const DEFAULT_TIMES: Record<ShiftType, { start: string; end: string }> = {
   '마감': { start: '16:00', end: '22:00' },
 }
 
-const SHIFT_STYLE: Record<ShiftType, { bg: string; color: string }> = {
-  '오픈': { bg: '#fef3c7', color: '#92400e' },
-  '미들': { bg: '#d1fae5', color: '#065f46' },
-  '마감': { bg: '#ede9fe', color: '#5b21b6' },
-}
+// 직원별 블록 컬러 (최대 7명 순환)
+const STAFF_COLORS = [
+  { bg: '#fef3c7', text: '#92400e', dot: '#d97706' },  // amber
+  { bg: '#dbeafe', text: '#1e40af', dot: '#3b82f6' },  // blue
+  { bg: '#d1fae5', text: '#065f46', dot: '#10b981' },  // emerald
+  { bg: '#ede9fe', text: '#5b21b6', dot: '#8b5cf6' },  // violet
+  { bg: '#fce7f3', text: '#9d174d', dot: '#ec4899' },  // pink
+  { bg: '#ffedd5', text: '#9a3412', dot: '#f97316' },  // orange
+  { bg: '#e0f2fe', text: '#0c4a6e', dot: '#0ea5e9' },  // sky
+]
 
 const SHIFT_BADGE: Record<ShiftType, string> = {
   '오픈': 'bg-amber-100  text-amber-800  ring-amber-300',
@@ -187,10 +192,30 @@ export default function SchedulePage() {
     [schedules, toCalEvent],
   )
 
+  // 직원 순서 기반 컬러 맵 (staffs 로드 순서 고정)
+  const staffColorMap = useMemo(() => {
+    const map = new Map<string, typeof STAFF_COLORS[0]>()
+    staffs.forEach((s, i) => map.set(s.id, STAFF_COLORS[i % STAFF_COLORS.length]))
+    return map
+  }, [staffs])
+
   const eventPropGetter = useCallback((event: CalEvent) => {
-    const style = SHIFT_STYLE[event.resource.shiftType]
-    return { style: { backgroundColor: style.bg, color: style.color } }
-  }, [])
+    const c = staffColorMap.get(event.resource.staffId) ?? STAFF_COLORS[0]
+    return { style: { backgroundColor: c.bg, color: c.text } }
+  }, [staffColorMap])
+
+  // 이번 주(calDate 기준) 직원별 배정 시간
+  const weekStats = useMemo(() => {
+    const weekStart = startOfWeek(calDate, { weekStartsOn: 1 })
+    const weekEnd   = addDays(weekStart, 6)
+    const s0 = format(weekStart, 'yyyy-MM-dd')
+    const s1 = format(weekEnd,   'yyyy-MM-dd')
+    return staffs.map(staff => {
+      const rows = schedules.filter(s => s.staffId === staff.id && s.date >= s0 && s.date <= s1)
+      const hours = rows.reduce((acc, s) => acc + timeToHours(s.startTime, s.endTime), 0)
+      return { staff, hours, count: rows.length }
+    })
+  }, [calDate, schedules, staffs])
 
   // ── 캘린더 이벤트 핸들러 ────────────────────────────────
 
@@ -435,20 +460,21 @@ export default function SchedulePage() {
           </div>
         )}
 
-        {/* ── 범례 ── */}
-        <div className="mb-3 flex items-center gap-3">
-          {(['오픈', '미들', '마감'] as ShiftType[]).map(type => (
-            <span
-              key={type}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 ${SHIFT_BADGE[type]}`}
-            >
-              <span className="h-2 w-2 rounded-full" style={{ background: SHIFT_STYLE[type].color }} />
-              {type}
-              <span className="font-normal opacity-70">
-                {shiftDefaults[type].start}–{shiftDefaults[type].end}
+        {/* ── 직원 범례 ── */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {staffs.map((staff, i) => {
+            const c = STAFF_COLORS[i % STAFF_COLORS.length]
+            return (
+              <span
+                key={staff.id}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1"
+                style={{ backgroundColor: c.bg, color: c.text, ringColor: c.dot } as React.CSSProperties}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ background: c.dot }} />
+                {staff.name}
               </span>
-            </span>
-          ))}
+            )
+          })}
         </div>
 
         {/* ── 캘린더 ── */}
@@ -475,6 +501,38 @@ export default function SchedulePage() {
             event: CalEventCard as (props: object) => React.ReactElement,
           }}
         />
+
+        {/* ── 이번 주 배정 시간 통계 ── */}
+        <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+          <div className="border-b border-stone-100 bg-stone-50 px-5 py-3 flex items-center justify-between">
+            <span className="text-sm font-bold text-stone-700">이번 주 배정 현황</span>
+            <span className="text-xs text-stone-400">{weekLabel}</span>
+          </div>
+          <div className="grid grid-cols-2 divide-x divide-y divide-stone-100 sm:grid-cols-4 lg:grid-cols-7">
+            {weekStats.map(({ staff, hours, count }, i) => {
+              const c = STAFF_COLORS[i % STAFF_COLORS.length]
+              return (
+                <div key={staff.id} className="flex flex-col items-center gap-1 px-3 py-4">
+                  <span
+                    className="mb-1 h-2.5 w-2.5 rounded-full"
+                    style={{ background: c.dot }}
+                  />
+                  <span className="text-xs font-semibold text-stone-700">{staff.name}</span>
+                  <span className="text-xl font-extrabold" style={{ color: c.text }}>
+                    {hours}h
+                  </span>
+                  <span className="text-[11px] text-stone-400">{count}회 배정</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="border-t border-stone-100 bg-stone-50 px-5 py-2.5 flex items-center gap-4">
+            <span className="text-xs text-stone-500">
+              총 <span className="font-bold text-stone-700">{weekStats.reduce((a, s) => a + s.hours, 0)}h</span> ·{' '}
+              <span className="font-bold text-stone-700">{weekStats.reduce((a, s) => a + s.count, 0)}회</span> 배정
+            </span>
+          </div>
+        </div>
 
       </div>
 
