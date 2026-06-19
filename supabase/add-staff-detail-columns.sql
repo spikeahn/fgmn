@@ -9,4 +9,6 @@ ALTER TABLE staffs
   ADD COLUMN IF NOT EXISTS health_certificate    BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS hire_date             DATE,
   ADD COLUMN IF NOT EXISTS resignation_date      DATE,
-  ADD COLUMN IF NOT EXISTS phone                 TEXT;
+  ADD COLUMN IF NOT EXISTS phone                 TEXT,
+  ADD COLUMN IF NOT EXISTS visa_info             TEXT,
+  ADD COLUMN IF NOT EXISTS memo                  TEXT;

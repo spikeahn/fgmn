@@ -20,15 +20,28 @@ interface StaffDetail {
   hire_date:            string | null
   resignation_date:     string | null
   visa_expiry_date:     string | null
+  visa_info:            string | null
+  memo:                 string | null
 }
 
 const EMPTY: Omit<StaffDetail, 'id'> = {
   name: '', hourly_wage: 0, is_active: true, color_index: null,
   phone: null, foreign_reg_number: null, bank_account: null,
-  health_certificate: false, hire_date: null, resignation_date: null, visa_expiry_date: null,
+  health_certificate: false, hire_date: null, resignation_date: null,
+  visa_expiry_date: null, visa_info: null, memo: null,
 }
 
 // ── 헬퍼 ────────────────────────────────────────────────────
+
+function visaExpiryStatus(dateStr: string | null): 'expired' | 'soon' | 'ok' | null {
+  if (!dateStr) return null
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const expiry = new Date(dateStr)
+  if (expiry < today) return 'expired'
+  const twoMonths = new Date(today); twoMonths.setMonth(today.getMonth() + 2)
+  if (expiry <= twoMonths) return 'soon'
+  return 'ok'
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -40,19 +53,20 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const inputCls = "w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm text-stone-700 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+const textareaCls = "w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm text-stone-700 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-none"
 
 // ── 메인 ────────────────────────────────────────────────────
 
 export default function StaffPage() {
   const { isAdmin } = useAdmin()
-  const [staffList, setStaffList] = useState<StaffDetail[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [editing,   setEditing]   = useState<StaffDetail | 'new' | null>(null)
+  const [staffList,     setStaffList]     = useState<StaffDetail[]>([])
+  const [loading,       setLoading]       = useState(true)
+  const [editing,       setEditing]       = useState<StaffDetail | 'new' | null>(null)
   const [saving,        setSaving]        = useState(false)
   const [saveError,     setSaveError]     = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [showInactive,  setShowInactive]  = useState(false)
 
-  // 폼 상태
   const [form, setForm] = useState<Omit<StaffDetail, 'id'>>(EMPTY)
 
   useEffect(() => { setConfirmDelete(false) }, [editing])
@@ -86,6 +100,8 @@ export default function StaffPage() {
       hire_date:          s.hire_date ?? '',
       resignation_date:   s.resignation_date ?? '',
       visa_expiry_date:   s.visa_expiry_date ?? '',
+      visa_info:          s.visa_info ?? '',
+      memo:               s.memo ?? '',
     } as Omit<StaffDetail, 'id'>)
     setEditing(s)
   }
@@ -106,6 +122,8 @@ export default function StaffPage() {
       hire_date:          (form.hire_date as string) || null,
       resignation_date:   (form.resignation_date as string) || null,
       visa_expiry_date:   (form.visa_expiry_date as string) || null,
+      visa_info:          (form.visa_info as string)?.trim() || null,
+      memo:               (form.memo as string)?.trim() || null,
     }
 
     if (editing === 'new') {
@@ -137,6 +155,9 @@ export default function StaffPage() {
     setStaffList(prev => prev.map(p => p.id === s.id ? { ...p, is_active: !p.is_active } : p))
   }
 
+  const inactiveCount = staffList.filter(s => !s.is_active).length
+  const displayedStaff = showInactive ? staffList : staffList.filter(s => s.is_active)
+
   // ── 비관리자 ────────────────────────────────────────────
   if (!isAdmin) {
     return (
@@ -162,14 +183,31 @@ export default function StaffPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-stone-800">직원 관리</h1>
-            <p className="mt-0.5 text-xs text-stone-400">총 {staffList.length}명 · 활성 {staffList.filter(s => s.is_active).length}명</p>
+            <p className="mt-0.5 text-xs text-stone-400">
+              활성 {staffList.filter(s => s.is_active).length}명
+              {inactiveCount > 0 && ` · 비활성 ${inactiveCount}명`}
+            </p>
           </div>
-          <button
-            onClick={openNew}
-            className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 active:scale-95"
-          >
-            + 직원 추가
-          </button>
+          <div className="flex items-center gap-2">
+            {inactiveCount > 0 && (
+              <button
+                onClick={() => setShowInactive(v => !v)}
+                className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                  showInactive
+                    ? 'border-stone-400 bg-stone-700 text-white'
+                    : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
+                }`}
+              >
+                {showInactive ? '비활성 숨기기' : `비활성 ${inactiveCount}명 보기`}
+              </button>
+            )}
+            <button
+              onClick={openNew}
+              className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 active:scale-95"
+            >
+              + 직원 추가
+            </button>
+          </div>
         </div>
 
         {/* 테이블 */}
@@ -184,14 +222,16 @@ export default function StaffPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-50">
-                {staffList.map((s, i) => {
+                {displayedStaff.map((s, i) => {
                   const c = COLOR_PALETTE[(s.color_index ?? i) % COLOR_PALETTE.length]
+                  const vs = visaExpiryStatus(s.visa_expiry_date)
                   return (
-                    <tr key={s.id} className={`transition-colors hover:bg-stone-50/60 ${!s.is_active ? 'opacity-50' : ''}`}>
+                    <tr key={s.id} className={`transition-colors hover:bg-stone-50/60 ${!s.is_active ? 'opacity-40' : ''}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: c.dot }} />
                           <span className="font-semibold text-stone-800">{s.name}</span>
+                          {!s.is_active && <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-400">비활성</span>}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-stone-500">{s.phone ?? <span className="text-stone-300">—</span>}</td>
@@ -204,9 +244,17 @@ export default function StaffPage() {
                       <td className="px-4 py-3 text-stone-500">{s.hire_date ?? <span className="text-stone-300">—</span>}</td>
                       <td className="px-4 py-3 text-stone-500">{s.resignation_date ?? <span className="text-stone-300">—</span>}</td>
                       <td className="px-4 py-3">
-                        {s.visa_expiry_date
-                          ? <span className={`text-xs font-medium ${new Date(s.visa_expiry_date) < new Date() ? 'text-red-500' : 'text-stone-500'}`}>{s.visa_expiry_date}</span>
-                          : <span className="text-stone-300">—</span>}
+                        {s.visa_expiry_date ? (
+                          <span className={`text-xs font-medium ${
+                            vs === 'expired' ? 'font-bold text-red-600' :
+                            vs === 'soon'    ? 'text-red-500' :
+                            'text-stone-500'
+                          }`}>
+                            {s.visa_expiry_date}
+                            {vs === 'expired' && ' (만료)'}
+                            {vs === 'soon'    && ' (임박)'}
+                          </span>
+                        ) : <span className="text-stone-300">—</span>}
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -231,9 +279,11 @@ export default function StaffPage() {
                     </tr>
                   )
                 })}
-                {staffList.length === 0 && (
+                {displayedStaff.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-sm text-stone-400">등록된 직원이 없습니다.</td>
+                    <td colSpan={9} className="py-12 text-center text-sm text-stone-400">
+                      {showInactive ? '등록된 직원이 없습니다.' : '활성 직원이 없습니다.'}
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -311,6 +361,13 @@ export default function StaffPage() {
                   </Field>
                 </div>
 
+                {/* 비자 정보 */}
+                <Field label="비자 정보">
+                  <textarea className={textareaCls} rows={3} value={form.visa_info ?? ''}
+                    onChange={e => setForm(f => ({ ...f, visa_info: e.target.value }))}
+                    placeholder="비자 종류, 체류자격, 기타 메모 등 자유롭게 입력" />
+                </Field>
+
                 {/* 컬러 */}
                 <Field label="캘린더 컬러">
                   <div className="flex flex-wrap gap-2">
@@ -349,6 +406,13 @@ export default function StaffPage() {
                     <span className="text-sm font-semibold text-stone-700">활성화 (캘린더·직원목록 표시)</span>
                   </label>
                 </div>
+
+                {/* 메모 */}
+                <Field label="메모">
+                  <textarea className={textareaCls} rows={3} value={form.memo ?? ''}
+                    onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
+                    placeholder="관리자 메모 (근무 특이사항, 연락 이력 등)" />
+                </Field>
               </div>
 
               {/* 에러 */}
