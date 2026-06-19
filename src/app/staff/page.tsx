@@ -48,11 +48,14 @@ export default function StaffPage() {
   const [staffList, setStaffList] = useState<StaffDetail[]>([])
   const [loading,   setLoading]   = useState(true)
   const [editing,   setEditing]   = useState<StaffDetail | 'new' | null>(null)
-  const [saving,    setSaving]    = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving,        setSaving]        = useState(false)
+  const [saveError,     setSaveError]     = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // 폼 상태
   const [form, setForm] = useState<Omit<StaffDetail, 'id'>>(EMPTY)
+
+  useEffect(() => { setConfirmDelete(false) }, [editing])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -114,6 +117,17 @@ export default function StaffPage() {
       if (error) { setSaveError(error.message); setSaving(false); return }
       setStaffList(prev => prev.map(s => s.id === (editing as StaffDetail).id ? { ...s, ...payload } : s))
     }
+    setSaving(false)
+    setEditing(null)
+  }
+
+  async function handleDelete() {
+    if (!editing || editing === 'new') return
+    setSaving(true)
+    setSaveError(null)
+    const { error } = await supabase.from('staffs').delete().eq('id', (editing as StaffDetail).id)
+    if (error) { setSaveError(error.message); setSaving(false); return }
+    setStaffList(prev => prev.filter(s => s.id !== (editing as StaffDetail).id))
     setSaving(false)
     setEditing(null)
   }
@@ -345,15 +359,28 @@ export default function StaffPage() {
               )}
 
               {/* 버튼 */}
-              <div className="flex gap-2 border-t border-stone-100 px-6 py-4">
-                <button onClick={() => setEditing(null)}
-                  className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-50">
-                  취소
-                </button>
-                <button onClick={handleSave} disabled={!form.name.trim() || saving}
-                  className="flex-[2] rounded-xl bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-40">
-                  {saving ? '저장 중...' : editing === 'new' ? '추가' : '저장'}
-                </button>
+              <div className="flex items-center gap-2 border-t border-stone-100 px-6 py-4">
+                {editing !== 'new' && (
+                  confirmDelete
+                    ? <button onClick={handleDelete} disabled={saving}
+                        className="shrink-0 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-40">
+                        정말 삭제
+                      </button>
+                    : <button onClick={() => setConfirmDelete(true)}
+                        className="shrink-0 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-400 hover:bg-red-50">
+                        삭제
+                      </button>
+                )}
+                <div className="flex flex-1 gap-2">
+                  <button onClick={() => setEditing(null)}
+                    className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-50">
+                    취소
+                  </button>
+                  <button onClick={handleSave} disabled={!form.name.trim() || saving}
+                    className="flex-[2] rounded-xl bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-40">
+                    {saving ? '저장 중...' : editing === 'new' ? '추가' : '저장'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
