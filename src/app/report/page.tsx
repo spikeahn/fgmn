@@ -1,23 +1,52 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { startOfWeek, addDays, format as fmtDate } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { calculateWeeklySalary, type WeeklySalaryResult } from '@/lib/salaryCalculator'
 
 // ── 헬퍼 ──────────────────────────────────────────────────
 
-function pad2(n: number) { return String(n).padStart(2, '0') }
-
 interface WeekDef { label: string; range: string; start: string; end: string }
 
+/**
+ * 목요일이 속한 달 = 그 주의 달 (ISO 주차 규칙)
+ * 예) 3/30(월)~4/5(일) → 목요일 4/2 → 4월 1주
+ *     4/27(월)~5/3(일) → 목요일 4/30 → 4월 5주
+ */
 function getMonthWeeks(year: number, month: number): WeekDef[] {
-  const lastDay = new Date(year, month, 0).getDate()
-  return [
-    { label: '1주차', range: `${month}/1–7`,              start: `${year}-${pad2(month)}-01`, end: `${year}-${pad2(month)}-07` },
-    { label: '2주차', range: `${month}/8–14`,             start: `${year}-${pad2(month)}-08`, end: `${year}-${pad2(month)}-14` },
-    { label: '3주차', range: `${month}/15–21`,            start: `${year}-${pad2(month)}-15`, end: `${year}-${pad2(month)}-21` },
-    { label: '4주차', range: `${month}/22–${lastDay}`,    start: `${year}-${pad2(month)}-22`, end: `${year}-${pad2(month)}-${pad2(lastDay)}` },
-  ]
+  const weeks: WeekDef[] = []
+
+  // 해당 월 1일이 속한 주의 월요일
+  const firstOfMonth = new Date(year, month - 1, 1)
+  let monday = startOfWeek(firstOfMonth, { weekStartsOn: 1 })
+
+  // 첫 번째 후보 주의 목요일이 이 달이 아니면 한 주 앞으로
+  if (addDays(monday, 3).getMonth() + 1 !== month) {
+    monday = addDays(monday, 7)
+  }
+
+  let weekNum = 1
+  while (true) {
+    const thu = addDays(monday, 3)
+    if (thu.getFullYear() !== year || thu.getMonth() + 1 !== month) break
+
+    const sunday = addDays(monday, 6)
+    const sm = monday.getMonth() + 1, sd = monday.getDate()
+    const em = sunday.getMonth() + 1, ed = sunday.getDate()
+
+    weeks.push({
+      label: `${weekNum}주차`,
+      range: sm === em ? `${sm}/${sd}–${ed}` : `${sm}/${sd}–${em}/${ed}`,
+      start: fmtDate(monday, 'yyyy-MM-dd'),
+      end:   fmtDate(sunday, 'yyyy-MM-dd'),
+    })
+
+    monday = addDays(monday, 7)
+    weekNum++
+  }
+
+  return weeks
 }
 
 // ── 타입 ──────────────────────────────────────────────────
