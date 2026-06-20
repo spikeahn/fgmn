@@ -150,6 +150,17 @@ function snapMins(mins: number): number {
   return Math.round(mins / SNAP) * SNAP
 }
 
+// ── 그리드 공통 헬퍼 (월간·주간 공용) ──────────────────────
+function evtLeftPct(t: string) {
+  const [h, m] = t.split(':').map(Number)
+  return `${Math.max((h - G_START + m / 60) / G_HOURS * 100, 0)}%`
+}
+function evtWidthPct(s: string, e: string) {
+  const [sh, sm] = s.split(':').map(Number)
+  const [eh, em] = e.split(':').map(Number)
+  return `${Math.max(((eh + em / 60) - (sh + sm / 60)) / G_HOURS * 100 - 0.2, 1)}%`
+}
+
 function MonthGridView({
   schedules, staffs, staffColorMap, year, month, onEdit, onCreate, onMove, onResize,
 }: {
@@ -168,16 +179,6 @@ function MonthGridView({
   const hours       = Array.from({ length: G_HOURS }, (_, i) => G_START + i)
   const dayNums     = Array.from({ length: daysInMonth }, (_, i) => i + 1)
   const minW        = DATE_LBL_W + G_HOURS * T_COL_W
-
-  function evtLeftPct(t: string) {
-    const [h, m] = t.split(':').map(Number)
-    return `${Math.max((h - G_START + m / 60) / G_HOURS * 100, 0)}%`
-  }
-  function evtWidthPct(s: string, e: string) {
-    const [sh, sm] = s.split(':').map(Number)
-    const [eh, em] = e.split(':').map(Number)
-    return `${Math.max(((eh + em / 60) - (sh + sm / 60)) / G_HOURS * 100 - 0.2, 1)}%`
-  }
 
   const byDay = useMemo(() => {
     const map = new Map<number, LocalSchedule[]>()
@@ -437,7 +438,7 @@ function MonthGridView({
                         borderRadius: 2, overflow: 'hidden',
                         pointerEvents: 'none',
                       }} className="text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none">
-                        <span>{sName.slice(0, 2)}</span>
+                        <span>{sName.slice(0, 3)}</span>
                         {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{dispStart}–{dispEnd}</span>}
                       </div>
                     </div>
@@ -469,7 +470,7 @@ function MonthGridView({
                       }}
                       className="text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none"
                     >
-                      <span>{sName.slice(0, 2)}</span>
+                      <span>{sName.slice(0, 3)}</span>
                       {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{ghost.previewStart}–{ghost.previewEnd}</span>}
                     </div>
                   )
@@ -479,6 +480,148 @@ function MonthGridView({
           )
         })}
 
+      </div>
+    </div>
+  )
+}
+
+
+// ── 주간 그리드 뷰 ────────────────────────────────────────
+// 레이아웃: row = 요일(월~일), column = 시간(왼→오른)
+// 월간 그리드와 동일한 구조, 7행 고정
+
+const DOW_KO = ['월', '화', '수', '목', '금', '토', '일']
+
+function WeekGridView({
+  schedules, staffs, staffColorMap, weekStart, onEdit, onCreate, isAdmin,
+}: {
+  schedules:     LocalSchedule[]
+  staffs:        StaffBasic[]
+  staffColorMap: Map<string, typeof COLOR_PALETTE[0]>
+  weekStart:     Date
+  onEdit:        (s: LocalSchedule) => void
+  onCreate:      (date: string) => void
+  isAdmin:       boolean
+}) {
+  const days  = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const hours = Array.from({ length: G_HOURS }, (_, i) => G_START + i)
+  const minW  = DATE_LBL_W + G_HOURS * T_COL_W
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, LocalSchedule[]>()
+    for (const s of schedules) {
+      const arr = map.get(s.date) ?? []
+      arr.push(s)
+      map.set(s.date, arr)
+    }
+    return map
+  }, [schedules])
+
+  const maxEvts = Math.max(1, ...days.map(d => (byDate.get(format(d, 'yyyy-MM-dd')) ?? []).length))
+  const ROW_H   = maxEvts * (EVT_H + 2) + 6
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+      <div style={{ overflowX: 'auto' }}>
+        <div style={{ minWidth: minW }}>
+          {/* 시간 헤더 */}
+          <div style={{ display: 'flex', borderBottom: '1px solid #e7e5e4',
+                        backgroundColor: '#fafaf9', position: 'sticky', top: 0, zIndex: 10 }}>
+            <div style={{ width: DATE_LBL_W, flexShrink: 0, borderRight: '1px solid #e7e5e4' }}
+                 className="flex items-center justify-center py-2">
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-stone-400">시간대</span>
+            </div>
+            {hours.map(h => (
+              <div key={h} style={{ flex: 1, minWidth: T_COL_W }}
+                   className="border-r border-stone-100 text-center py-2 text-[10px] font-semibold text-stone-500">
+                {pad2(h)}:00
+              </div>
+            ))}
+          </div>
+
+          {/* 7 요일 행 */}
+          {days.map((day, idx) => {
+            const dateStr = format(day, 'yyyy-MM-dd')
+            const evts    = byDate.get(dateStr) ?? []
+            const isSun   = idx === 6
+            const isSat   = idx === 5
+
+            return (
+              <div key={dateStr} style={{ display: 'flex', borderBottom: '1px solid #f5f5f4' }}>
+                {/* 요일 레이블 */}
+                <div
+                  style={{ width: DATE_LBL_W, flexShrink: 0, height: ROW_H, borderRight: '1px solid #e7e5e4' }}
+                  className={`flex flex-col items-center justify-center gap-0.5 ${
+                    isSun ? 'bg-red-50/40' : isSat ? 'bg-blue-50/40' : 'bg-stone-50/30'
+                  }`}
+                >
+                  <span className={`text-[10px] font-semibold ${
+                    isSun ? 'text-red-400' : isSat ? 'text-blue-400' : 'text-stone-400'
+                  }`}>
+                    {DOW_KO[idx]}
+                  </span>
+                  <span className={`text-sm font-bold ${
+                    isSun ? 'text-red-500' : isSat ? 'text-blue-500' : 'text-stone-700'
+                  }`}>
+                    {format(day, 'd')}
+                  </span>
+                </div>
+
+                {/* 시간 영역 */}
+                <div
+                  style={{ flex: 1, minWidth: G_HOURS * T_COL_W, position: 'relative',
+                           height: ROW_H, cursor: isAdmin ? 'pointer' : 'default' }}
+                  className={isSun ? 'bg-red-50/20' : isSat ? 'bg-blue-50/20' : 'hover:bg-stone-50/40'}
+                  onClick={() => { if (isAdmin) onCreate(dateStr) }}
+                >
+                  {/* 수직 시간선 */}
+                  {hours.map((_, i) => (
+                    <div key={i} style={{
+                      position: 'absolute', left: `${i / G_HOURS * 100}%`,
+                      top: 0, bottom: 0, borderRight: '1px solid rgba(245,245,244,0.9)',
+                      pointerEvents: 'none',
+                    }} />
+                  ))}
+
+                  {/* 이벤트 블록 */}
+                  {evts.map((s, evtIdx) => {
+                    const c     = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
+                    const sName = staffs.find(st => st.id === s.staffId)?.name ?? ''
+                    const top   = 3 + evtIdx * (EVT_H + 2)
+                    const [sh, sm] = s.startTime.split(':').map(Number)
+                    const [eh, em] = s.endTime.split(':').map(Number)
+                    const durH = (eh + em / 60) - (sh + sm / 60)
+
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          position: 'absolute',
+                          left:   evtLeftPct(s.startTime),
+                          width:  evtWidthPct(s.startTime, s.endTime),
+                          top, height: EVT_H,
+                          cursor: isAdmin ? 'pointer' : 'default',
+                        }}
+                        onClick={e => { e.stopPropagation(); if (isAdmin) onEdit(s) }}
+                        title={`${sName}  ${s.startTime}–${s.endTime}`}
+                      >
+                        <div style={{
+                          position: 'absolute', left: 0, top: 0, right: 0, bottom: 0,
+                          backgroundColor: c.bg, color: c.text,
+                          borderLeft: `3px solid ${c.dot}`,
+                          borderRadius: 2, overflow: 'hidden', pointerEvents: 'none',
+                        }} className="text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none">
+                          <span>{sName.slice(0, 3)}</span>
+                          {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{s.startTime}–{s.endTime}</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -1234,51 +1377,15 @@ export default function SchedulePage() {
         {/* ── 뷰 영역 ── */}
         {view === 'week' ? (
           <>
-            {isAdmin ? <DnDCalendar
-              localizer={localizer}
-              events={filteredEvents}
-              defaultView="week"
-              views={['week']}
-              date={calDate}
-              onNavigate={setCalDate}
-              culture="ko"
-              selectable
-              onSelectSlot={onSelectSlot as (slotInfo: object) => void}
-              onSelectEvent={onSelectEvent as (event: object) => void}
-              onEventDrop={onEventDrop as (args: object) => void}
-              onEventResize={onEventResize as (args: object) => void}
-              eventPropGetter={eventPropGetter as (event: object) => object}
-              formats={calFormats as object}
-              min={new Date(0, 0, 0, 9, 0)}
-              max={new Date(0, 0, 0, 23, 0)}
-              step={60}
-              timeslots={1}
-              style={{ height: 'calc(100vh - 280px)', minHeight: 540 }}
-              components={{
-                toolbar: () => null,
-                event: CalEventCard as (props: object) => React.ReactElement,
-              }}
-            /> : <Calendar
-              localizer={localizer}
-              events={filteredEvents}
-              defaultView="week"
-              views={['week']}
-              date={calDate}
-              onNavigate={setCalDate}
-              culture="ko"
-              selectable={false}
-              eventPropGetter={eventPropGetter as (event: object) => object}
-              formats={calFormats as object}
-              min={new Date(0, 0, 0, 9, 0)}
-              max={new Date(0, 0, 0, 23, 0)}
-              step={60}
-              timeslots={1}
-              style={{ height: 'calc(100vh - 280px)', minHeight: 540 }}
-              components={{
-                toolbar: () => null,
-                event: CalEventCard as (props: object) => React.ReactElement,
-              }}
-            />}
+            <WeekGridView
+              schedules={filteredSchedules}
+              staffs={staffs}
+              staffColorMap={staffColorMap}
+              weekStart={startOfWeek(calDate, { weekStartsOn: 1 })}
+              onEdit={onMonthEdit}
+              onCreate={onMonthCreate}
+              isAdmin={isAdmin}
+            />
 
             {/* ── 이번 주 배정 시간 통계 ── */}
             {isAdmin && <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">

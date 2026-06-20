@@ -59,30 +59,31 @@ export default function TopNav() {
   return (
     <>
       {/* ── 네비게이션 바 ─────────────────────────────── */}
-      <nav className="sticky top-0 z-40 flex h-14 items-center border-b border-stone-200 bg-white/90 px-4 backdrop-blur-sm">
+      <nav className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-stone-200 bg-white/90 px-3 backdrop-blur-sm">
 
-        {/* 로고 */}
-        <span className="mr-4 select-none text-base font-black tracking-tight text-stone-800">
+        {/* 로고 - 항상 고정 */}
+        <span className="shrink-0 select-none text-sm font-black tracking-tight text-stone-800 sm:text-base">
           FGMN
         </span>
 
-        {/* 관리자 뱃지 */}
-        {isAdmin && (
-          <span className="mr-3 flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-            관리자
-          </span>
-        )}
+        {/* 중앙 스크롤 영역: 뱃지 + 탭 + 종료 */}
+        <div className="flex flex-1 min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [-webkit-overflow-scrolling:touch]">
+          {/* 관리자 뱃지 */}
+          {isAdmin && (
+            <span className="shrink-0 mr-1 flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              <span className="hidden sm:inline">관리자</span>
+            </span>
+          )}
 
-        {/* 페이지 탭 */}
-        <div className="flex gap-1">
+          {/* 페이지 탭 */}
           {navItems.map(item => {
             const active = pathname.startsWith(item.href)
             return (
               <button
                 key={item.href}
                 onClick={() => router.push(item.href)}
-                className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors
+                className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors sm:px-4 sm:text-sm
                   ${active
                     ? 'bg-amber-100 text-amber-700'
                     : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800'
@@ -92,21 +93,21 @@ export default function TopNav() {
               </button>
             )
           })}
+
+          {/* 관리자 종료 버튼 */}
+          {isAdmin && (
+            <button
+              onClick={exitAdmin}
+              className="shrink-0 ml-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-stone-400 hover:bg-stone-100 hover:text-stone-600"
+            >
+              종료
+            </button>
+          )}
         </div>
 
-        {/* 관리자 종료 버튼 */}
-        {isAdmin && (
-          <button
-            onClick={exitAdmin}
-            className="ml-3 rounded-lg px-3 py-1.5 text-xs font-semibold text-stone-400 hover:bg-stone-100 hover:text-stone-600"
-          >
-            종료
-          </button>
-        )}
-
-        {/* 우측 비밀 탭 (5회 → 관리자 로그인) */}
+        {/* 우측 비밀 탭 (5회 → 관리자 로그인) - 항상 고정 */}
         <div
-          className="ml-auto h-10 w-16 cursor-default select-none"
+          className="shrink-0 h-10 w-10 cursor-default select-none"
           onPointerDown={handleRightTap}
           aria-hidden
         />
