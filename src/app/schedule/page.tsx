@@ -86,7 +86,7 @@ const G_END      = 23    // 23:00
 const G_HOURS    = G_END - G_START   // 16 슬롯
 
 const T_COL_W    = 52    // px per 1-hour column
-const DATE_LBL_W = 72    // px for date label column
+const DATE_LBL_W = 50    // px for date label column
 const EVT_H      = 18    // px height of each event bar
 
 function pad2(n: number) { return String(n).padStart(2, '0') }
@@ -359,16 +359,19 @@ function MonthGridView({
             <div key={d} style={{ display: 'flex', borderBottom: '1px solid #f5f5f4' }}>
               {/* 날짜 레이블 */}
               <div
-                style={{ width: DATE_LBL_W, flexShrink: 0, height: ROW_H, borderRight: '1px solid #e7e5e4' }}
-                className={`flex items-center gap-1 px-3 text-xs font-semibold ${
-                  dow === 0 ? 'text-red-500 bg-red-50/40'
-                  : dow === 6 ? 'text-blue-500 bg-blue-50/40'
-                  : 'text-stone-600 bg-stone-50/30'
+                style={{ width: DATE_LBL_W, flexShrink: 0, height: ROW_H, borderRight: '1px solid #e7e5e4',
+                         position: 'sticky', left: 0, zIndex: 2 }}
+                className={`flex flex-col items-center justify-center gap-0.5 ${
+                  dow === 0 ? 'bg-red-50'
+                  : dow === 6 ? 'bg-sky-50'
+                  : 'bg-white'
                 }`}
               >
-                <span className="font-bold">{d}</span>
-                <span className="text-[9px] font-normal opacity-60">
+                <span className={`text-[10px] font-semibold ${dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-400' : 'text-stone-400'}`}>
                   {['일','월','화','수','목','금','토'][dow]}
+                </span>
+                <span className={`text-sm font-bold ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-stone-700'}`}>
+                  {d}
                 </span>
               </div>
 
@@ -550,9 +553,10 @@ function WeekGridView({
               <div key={dateStr} style={{ display: 'flex', borderBottom: '1px solid #f5f5f4' }}>
                 {/* 요일 레이블 */}
                 <div
-                  style={{ width: DATE_LBL_W, flexShrink: 0, height: ROW_H, borderRight: '1px solid #e7e5e4' }}
+                  style={{ width: DATE_LBL_W, flexShrink: 0, height: ROW_H, borderRight: '1px solid #e7e5e4',
+                           position: 'sticky', left: 0, zIndex: 2 }}
                   className={`flex flex-col items-center justify-center gap-0.5 ${
-                    isSun ? 'bg-red-50/40' : isSat ? 'bg-blue-50/40' : 'bg-stone-50/30'
+                    isSun ? 'bg-red-50' : isSat ? 'bg-sky-50' : 'bg-white'
                   }`}
                 >
                   <span className={`text-[10px] font-semibold ${
