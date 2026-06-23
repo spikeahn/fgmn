@@ -8,19 +8,19 @@ export const mockStaffs: Staff[] = [
 
 export const mockChecklists: Checklist[] = [
   // ── 오픈 체크리스트 ────────────────────────────────────
-  { id: 'cl-01', tab: '오픈', order: 1, title: '에스프레소 머신 예열',   description: '오픈 30분 전 전원 켜기',             is_active: true },
-  { id: 'cl-02', tab: '오픈', order: 2, title: '원두 보충',              description: '각 그라인더 원두 잔량 확인',          is_active: true },
-  { id: 'cl-03', tab: '오픈', order: 3, title: '우유 스팀 온도 확인',     description: '스팀 완드 청소 후 테스트',            is_active: true },
-  { id: 'cl-05', tab: '오픈', order: 4, title: '냉장고 온도 확인',        description: '2~5도 유지 여부 확인',               is_active: true },
-  { id: 'cl-07', tab: '오픈', order: 5, title: '시럽·소스 보충',          description: '바닐라, 카라멜, 헤이즐넛 잔량 확인',  is_active: true },
-  { id: 'cl-09', tab: '오픈', order: 6, title: '포스 시스템 켜기',        description: '영수증 용지 잔량 확인',              is_active: true },
-  { id: 'cl-10', tab: '오픈', order: 7, title: '영업 전 음악 설정',       description: '볼륨 및 플레이리스트 확인',           is_active: true },
-  { id: 'cl-11', tab: '오픈', order: 8, title: '간판·외부 조명 켜기',     description: '오픈 15분 전 확인',                 is_active: true },
+  { id: 'cl-01', tab: '오픈', order: 1, title: '에스프레소 머신 예열',   description: '오픈 30분 전 전원 켜기',             is_active: true, start_date: null, image_url: null },
+  { id: 'cl-02', tab: '오픈', order: 2, title: '원두 보충',              description: '각 그라인더 원두 잔량 확인',          is_active: true, start_date: null, image_url: null },
+  { id: 'cl-03', tab: '오픈', order: 3, title: '우유 스팀 온도 확인',     description: '스팀 완드 청소 후 테스트',            is_active: true, start_date: null, image_url: null },
+  { id: 'cl-05', tab: '오픈', order: 4, title: '냉장고 온도 확인',        description: '2~5도 유지 여부 확인',               is_active: true, start_date: null, image_url: null },
+  { id: 'cl-07', tab: '오픈', order: 5, title: '시럽·소스 보충',          description: '바닐라, 카라멜, 헤이즐넛 잔량 확인',  is_active: true, start_date: null, image_url: null },
+  { id: 'cl-09', tab: '오픈', order: 6, title: '포스 시스템 켜기',        description: '영수증 용지 잔량 확인',              is_active: true, start_date: null, image_url: null },
+  { id: 'cl-10', tab: '오픈', order: 7, title: '영업 전 음악 설정',       description: '볼륨 및 플레이리스트 확인',           is_active: true, start_date: null, image_url: null },
+  { id: 'cl-11', tab: '오픈', order: 8, title: '간판·외부 조명 켜기',     description: '오픈 15분 전 확인',                 is_active: true, start_date: null, image_url: null },
   // ── 마감 체크리스트 ────────────────────────────────────
-  { id: 'cl-04', tab: '마감', order: 1, title: '테이블 닦기',             description: '전 테이블 소독제로 닦기',            is_active: true },
-  { id: 'cl-06', tab: '마감', order: 2, title: '쓰레기통 비우기',         description: '홀/주방 쓰레기통 교체',              is_active: true },
-  { id: 'cl-08', tab: '마감', order: 3, title: '컵 세척 확인',            description: '식기세척기 사이클 완료 여부',         is_active: true },
-  { id: 'cl-12', tab: '마감', order: 4, title: '영업 종료 후 머신 세척',  description: '백플러시 및 그룹헤드 청소',           is_active: true },
+  { id: 'cl-04', tab: '마감', order: 1, title: '테이블 닦기',             description: '전 테이블 소독제로 닦기',            is_active: true, start_date: null, image_url: null },
+  { id: 'cl-06', tab: '마감', order: 2, title: '쓰레기통 비우기',         description: '홀/주방 쓰레기통 교체',              is_active: true, start_date: null, image_url: null },
+  { id: 'cl-08', tab: '마감', order: 3, title: '컵 세척 확인',            description: '식기세척기 사이클 완료 여부',         is_active: true, start_date: null, image_url: null },
+  { id: 'cl-12', tab: '마감', order: 4, title: '영업 종료 후 머신 세척',  description: '백플러시 및 그룹헤드 청소',           is_active: true, start_date: null, image_url: null },
 ]
 
 export const mockChecklistLogs: ChecklistLog[] = []

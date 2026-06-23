@@ -15,6 +15,8 @@ export interface Checklist {
   title: string
   description: string | null
   is_active: boolean
+  start_date: string | null
+  image_url: string | null
 }
 
 export interface ChecklistLog {

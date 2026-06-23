@@ -22,7 +22,7 @@ interface LocalItem {
   description: string | null
   is_active: boolean
   start_date: string | null
-  imageDataUrl?: string
+  image_url?: string | null
 }
 
 type LocalStaff = StaffItem
@@ -316,18 +316,18 @@ export default function ChecklistPage() {
 
   async function saveItem(item: LocalItem) {
     if (item.id.startsWith('new-')) {
-      // INSERT
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('checklists')
-        .insert({ tab: item.tab, order: item.order, title: item.title, description: item.description, is_active: true, start_date: today })
+        .insert({ tab: item.tab, order: item.order, title: item.title, description: item.description, is_active: true, start_date: today, image_url: item.image_url ?? null })
         .select()
         .single()
+      if (error) { alert(`추가 실패: ${error.message}`); return }
       if (data) setItems(prev => [...prev, data as LocalItem])
     } else {
-      // UPDATE
-      await supabase.from('checklists').update({
-        tab: item.tab, order: item.order, title: item.title, description: item.description,
+      const { error } = await supabase.from('checklists').update({
+        tab: item.tab, order: item.order, title: item.title, description: item.description, image_url: item.image_url ?? null,
       }).eq('id', item.id)
+      if (error) { alert(`수정 실패: ${error.message}`); return }
       setItems(prev => prev.map(i => i.id === item.id ? { ...item } : i))
     }
     setEditingItem(null)
@@ -394,12 +394,12 @@ export default function ChecklistPage() {
   // ── 렌더 ─────────────────────────────────────────────────
 
   return (
-    <main className="min-h-screen bg-[#FAF8F5] px-6 py-8 select-none">
+    <main className="min-h-screen bg-[#FAF8F5] px-3 py-5 select-none sm:px-6 sm:py-8">
       <div className="mx-auto max-w-2xl">
 
         {/* 헤더 */}
         <div className="mb-5 flex items-start justify-between gap-4">
-          <h1 className="text-3xl font-bold tracking-tight text-stone-800">매장 체크리스트</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-stone-800 sm:text-3xl">매장 체크리스트</h1>
           <div className="flex flex-shrink-0 flex-col items-end gap-2">
             {isToday ? (
               <div className="flex items-end gap-2">
@@ -536,7 +536,7 @@ export default function ChecklistPage() {
                     </button>
                   </div>
                   <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl border-2 border-dashed border-stone-200 bg-stone-50 flex items-center justify-center">
-                    {item.imageDataUrl ? <img src={item.imageDataUrl} className="h-full w-full object-cover" alt="" /> : <CameraIcon />}
+                    {item.image_url ? <img src={item.image_url} className="h-full w-full object-cover" alt="" /> : <CameraIcon />}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <p className="break-words whitespace-normal text-sm font-semibold text-stone-700">{item.title}</p>
@@ -561,7 +561,7 @@ export default function ChecklistPage() {
             return (
               <div key={item.id} className={`flex items-center gap-4 rounded-2xl border p-4 transition-all duration-200 ${done ? 'border-amber-200 bg-amber-50/60' : isPast ? 'border-stone-100 bg-white/70' : 'border-stone-200 bg-white shadow-sm active:scale-[0.99]'}`}>
                 <div className={`h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl border-2 border-dashed flex items-center justify-center ${done ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-stone-100/60'}`}>
-                  {item.imageDataUrl ? <img src={item.imageDataUrl} className="h-full w-full object-cover" alt="" /> : <CameraIcon />}
+                  {item.image_url ? <img src={item.image_url} className="h-full w-full object-cover" alt="" /> : <CameraIcon />}
                 </div>
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <p className={`break-words whitespace-normal text-[15px] font-semibold leading-snug ${done ? 'text-stone-400 line-through decoration-amber-400' : isPast ? 'text-stone-400' : 'text-stone-800'}`}>{item.title}</p>
@@ -690,19 +690,42 @@ function ItemEditModal({ item, defaultTab, onSave, onClose }: {
   const [tab,         setTab]         = useState<ChecklistTab>(item?.tab ?? defaultTab)
   const [title,       setTitle]       = useState(item?.title ?? '')
   const [description, setDescription] = useState(item?.description ?? '')
-  const [imgUrl,      setImgUrl]      = useState<string | undefined>(item?.imageDataUrl)
+  const [imgPreview,  setImgPreview]  = useState<string | undefined>(item?.image_url ?? undefined)
+  const [imgFile,     setImgFile]     = useState<File | null>(null)
+  const [imgRemoved,  setImgRemoved]  = useState(false)
+  const [uploading,   setUploading]   = useState(false)
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setImgFile(file)
+    setImgRemoved(false)
     const reader = new FileReader()
-    reader.onload = ev => setImgUrl(ev.target?.result as string)
+    reader.onload = ev => setImgPreview(ev.target?.result as string)
     reader.readAsDataURL(file)
   }
 
-  function handleSave() {
-    if (!title.trim()) return
-    onSave({ id: item?.id ?? `new-${Date.now()}`, tab, order: item?.order ?? 999, title: title.trim(), description: description.trim() || null, is_active: true, start_date: item?.start_date ?? null, imageDataUrl: imgUrl })
+  async function handleSave() {
+    if (!title.trim() || uploading) return
+    setUploading(true)
+
+    let image_url: string | null = imgRemoved ? null : (item?.image_url ?? null)
+
+    if (imgFile) {
+      const fileName = `${item?.id && !item.id.startsWith('new-') ? item.id : Date.now()}-${Date.now()}.${imgFile.name.split('.').pop() ?? 'jpg'}`
+      const { error: uploadError } = await supabase.storage
+        .from('checklist-images')
+        .upload(fileName, imgFile, { upsert: true })
+      if (uploadError) {
+        alert(`이미지 업로드 실패: ${uploadError.message}\nSupabase Storage에 'checklist-images' 버킷이 있는지 확인하세요.`)
+      } else {
+        const { data: urlData } = supabase.storage.from('checklist-images').getPublicUrl(fileName)
+        image_url = urlData.publicUrl
+      }
+    }
+
+    setUploading(false)
+    onSave({ id: item?.id ?? `new-${Date.now()}`, tab, order: item?.order ?? 999, title: title.trim(), description: description.trim() || null, is_active: true, start_date: item?.start_date ?? null, image_url })
   }
 
   return (
@@ -721,11 +744,11 @@ function ItemEditModal({ item, defaultTab, onSave, onClose }: {
         <div className="mb-4">
           <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-stone-400">사진</label>
           <label className="flex cursor-pointer items-center gap-3 rounded-2xl border-2 border-dashed border-stone-200 bg-stone-50 p-3 hover:border-amber-300 hover:bg-amber-50/30 active:scale-[0.99]">
-            {imgUrl ? <img src={imgUrl} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" alt="" /> : <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-xl bg-stone-200"><svg className="h-6 w-6 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" /><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" /></svg></div>}
-            <div><p className="text-sm font-semibold text-stone-600">{imgUrl ? '사진 변경' : '사진 추가'}</p><p className="text-xs text-stone-400">탭하여 갤러리에서 선택</p></div>
+            {imgPreview ? <img src={imgPreview} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" alt="" /> : <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-xl bg-stone-200"><svg className="h-6 w-6 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" /><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" /></svg></div>}
+            <div><p className="text-sm font-semibold text-stone-600">{imgPreview ? '사진 변경' : '사진 추가'}</p><p className="text-xs text-stone-400">탭하여 갤러리에서 선택</p></div>
             <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
           </label>
-          {imgUrl && <button onClick={() => setImgUrl(undefined)} className="mt-2 text-xs font-semibold text-red-400 hover:text-red-600">사진 제거</button>}
+          {imgPreview && <button onClick={() => { setImgPreview(undefined); setImgFile(null); setImgRemoved(true) }} className="mt-2 text-xs font-semibold text-red-400 hover:text-red-600">사진 제거</button>}
         </div>
         <div className="mb-4">
           <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-stone-400">항목 이름 *</label>
@@ -737,7 +760,7 @@ function ItemEditModal({ item, defaultTab, onSave, onClose }: {
         </div>
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 rounded-xl border border-stone-200 py-3 text-sm font-semibold text-stone-500 hover:bg-stone-50">취소</button>
-          <button onClick={handleSave} disabled={!title.trim()} className="flex-1 rounded-xl bg-amber-400 py-3 text-sm font-extrabold text-white hover:bg-amber-500 disabled:opacity-40">{item ? '저장' : '추가'}</button>
+          <button onClick={handleSave} disabled={!title.trim() || uploading} className="flex-1 rounded-xl bg-amber-400 py-3 text-sm font-extrabold text-white hover:bg-amber-500 disabled:opacity-40">{uploading ? '저장 중...' : (item ? '저장' : '추가')}</button>
         </div>
       </div>
     </div>
