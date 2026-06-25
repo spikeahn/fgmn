@@ -176,7 +176,7 @@ export default function StaffPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#FAF8F5] px-4 py-8">
+    <main className="min-h-screen bg-[#FAF8F5] px-3 py-5 sm:px-4 sm:py-8">
       <div className="mx-auto max-w-6xl">
 
         {/* 헤더 */}

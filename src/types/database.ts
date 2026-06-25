@@ -11,6 +11,7 @@ export interface Staff {
 export interface Checklist {
   id: string
   tab: ChecklistTab
+  section: string | null
   order: number
   title: string
   description: string | null

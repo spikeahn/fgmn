@@ -133,7 +133,7 @@ interface MGPreview {
   previewEnd:   string
 }
 
-const SNAP = 15  // 15분 단위 스냅
+const SNAP = 30  // 30분 단위 스냅
 
 function minsToTime(mins: number): string {
   const h = Math.floor(mins / 60)
@@ -191,7 +191,7 @@ function MonthGridView({
   }, [schedules, monthPfx])
 
   const maxEvts = Math.max(1, ...dayNums.map(d => (byDay.get(d) ?? []).length))
-  const ROW_H   = maxEvts * (EVT_H + 2) + 6
+  const ROW_H   = Math.max(50, maxEvts * (EVT_H + 2) + 6)
 
   // ── Drag 상태 ──
   const outerRef  = useRef<HTMLDivElement>(null)
@@ -201,6 +201,7 @@ function MonthGridView({
   useEffect(() => { cbRef.current = { onEdit, onCreate, onMove, onResize } },
     [onEdit, onCreate, onMove, onResize])
   const [dragPreview, setDragPreview] = useState<MGPreview | null>(null)
+  const dragEndedRef = useRef(false)
 
   // 전역 mousemove / mouseup
   useEffect(() => {
@@ -266,6 +267,7 @@ function MonthGridView({
       const drag = dragRef.current
       if (!drag) return
 
+      dragEndedRef.current = true
       if (!drag.hasDragged) {
         // 클릭으로 처리 → 모달 열기
         cbRef.current.onEdit(drag.schedule)
@@ -296,6 +298,7 @@ function MonthGridView({
     e.preventDefault()
     e.stopPropagation()
 
+    dragEndedRef.current = false
     const outer = outerRef.current
     const inner = innerRef.current
     if (!outer || !inner) return
@@ -380,7 +383,10 @@ function MonthGridView({
                 style={{ flex: 1, minWidth: G_HOURS * T_COL_W, position: 'relative',
                          height: ROW_H, cursor: dragPreview ? 'grabbing' : 'pointer' }}
                 className={dow === 0 ? 'bg-red-50/20' : dow === 6 ? 'bg-blue-50/20' : 'hover:bg-stone-50/40'}
-                onClick={() => { if (!dragPreview) onCreate(dateStr) }}
+                onClick={() => {
+                  if (dragEndedRef.current) { dragEndedRef.current = false; return }
+                  if (!dragPreview) onCreate(dateStr)
+                }}
               >
                 {/* 수직 시간선 */}
                 {hours.map((_, i) => (
@@ -496,7 +502,7 @@ function MonthGridView({
 const DOW_KO = ['월', '화', '수', '목', '금', '토', '일']
 
 function WeekGridView({
-  schedules, staffs, staffColorMap, weekStart, onEdit, onCreate, isAdmin,
+  schedules, staffs, staffColorMap, weekStart, onEdit, onCreate, onMove, onResize, isAdmin,
 }: {
   schedules:     LocalSchedule[]
   staffs:        StaffBasic[]
@@ -504,6 +510,8 @@ function WeekGridView({
   weekStart:     Date
   onEdit:        (s: LocalSchedule) => void
   onCreate:      (date: string) => void
+  onMove:        (id: string, newDate: string, newStart: string, newEnd: string) => void
+  onResize:      (id: string, date: string, newStart: string, newEnd: string) => void
   isAdmin:       boolean
 }) {
   const days  = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
@@ -521,12 +529,134 @@ function WeekGridView({
   }, [schedules])
 
   const maxEvts = Math.max(1, ...days.map(d => (byDate.get(format(d, 'yyyy-MM-dd')) ?? []).length))
-  const ROW_H   = maxEvts * (EVT_H + 2) + 6
+  const ROW_H   = Math.max(50, maxEvts * (EVT_H + 2) + 6)
+
+  // ── Drag 상태 ──
+  const outerRef = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
+  const dragRef  = useRef<MGDragState | null>(null)
+  const cbRef    = useRef({ onEdit, onCreate, onMove, onResize })
+  useEffect(() => { cbRef.current = { onEdit, onCreate, onMove, onResize } },
+    [onEdit, onCreate, onMove, onResize])
+  const [dragPreview, setDragPreview] = useState<MGPreview | null>(null)
+  const dragEndedRef = useRef(false)
+
+  const weekTs = weekStart.getTime()
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      const drag = dragRef.current
+      if (!drag) return
+      e.preventDefault()
+
+      const dx = e.clientX - drag.initX
+      const dy = e.clientY - drag.initY
+      if (!drag.hasDragged && Math.sqrt(dx * dx + dy * dy) > 4) {
+        drag.hasDragged = true
+      }
+      if (!drag.hasDragged) return
+
+      const { type, schedule, timeAreaWidth, initDayIdx, rowH } = drag
+      const rawDeltaMins = dx / timeAreaWidth * G_HOURS * 60
+      const deltaMins    = snapMins(rawDeltaMins)
+
+      if (type === 'move') {
+        const origStartMins = timeToMins(schedule.startTime)
+        const origEndMins   = timeToMins(schedule.endTime)
+        const durationMins  = origEndMins - origStartMins
+        const maxStartMins  = G_END * 60 - durationMins
+        const newStartMins  = Math.max(G_START * 60, Math.min(maxStartMins, snapMins(origStartMins + deltaMins)))
+        const newEndMins    = newStartMins + durationMins
+        const newStart = minsToTime(newStartMins)
+        const newEnd   = minsToTime(newEndMins)
+
+        const dayDelta  = Math.round(dy / rowH)
+        const newDayIdx = Math.max(0, Math.min(6, initDayIdx + dayDelta))
+        const newDate   = format(addDays(new Date(weekTs), newDayIdx), 'yyyy-MM-dd')
+
+        drag.previewDate  = newDate
+        drag.previewStart = newStart
+        drag.previewEnd   = newEnd
+        setDragPreview({ scheduleId: schedule.id, type, previewDate: newDate, previewStart: newStart, previewEnd: newEnd })
+
+      } else if (type === 'resizeStart') {
+        const origStartMins = timeToMins(schedule.startTime)
+        const origEndMins   = timeToMins(schedule.endTime)
+        const newStartMins  = Math.max(G_START * 60, Math.min(origEndMins - SNAP, snapMins(origStartMins + deltaMins)))
+        const newStart = minsToTime(newStartMins)
+        drag.previewStart = newStart
+        setDragPreview(p => p ? { ...p, previewStart: newStart } : null)
+
+      } else {
+        const origStartMins = timeToMins(schedule.startTime)
+        const origEndMins   = timeToMins(schedule.endTime)
+        const newEndMins    = Math.max(origStartMins + SNAP, Math.min(G_END * 60, snapMins(origEndMins + deltaMins)))
+        const newEnd = minsToTime(newEndMins)
+        drag.previewEnd = newEnd
+        setDragPreview(p => p ? { ...p, previewEnd: newEnd } : null)
+      }
+    }
+
+    function onMouseUp() {
+      const drag = dragRef.current
+      if (!drag) return
+
+      dragEndedRef.current = true
+      if (!drag.hasDragged) {
+        cbRef.current.onEdit(drag.schedule)
+      } else {
+        const { schedule, type, previewDate, previewStart, previewEnd } = drag
+        const changed = previewDate !== schedule.date
+          || previewStart !== schedule.startTime
+          || previewEnd   !== schedule.endTime
+        if (changed) {
+          if (type === 'move') cbRef.current.onMove(schedule.id, previewDate, previewStart, previewEnd)
+          else cbRef.current.onResize(schedule.id, previewDate, previewStart, previewEnd)
+        }
+      }
+      dragRef.current = null
+      setDragPreview(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove, { passive: false })
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [weekTs])
+
+  function startDrag(s: LocalSchedule, type: MGDragType, e: React.MouseEvent, dayIdx: number) {
+    if (!isAdmin || e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    dragEndedRef.current = false
+    const inner = innerRef.current
+    if (!inner) return
+
+    const timeAreaWidth = inner.offsetWidth - DATE_LBL_W
+
+    dragRef.current = {
+      type, schedule: s,
+      initX: e.clientX, initY: e.clientY,
+      initDayIdx: dayIdx,
+      timeAreaLeft: 0, timeAreaWidth,
+      rowH: ROW_H, durH: 0,
+      hasDragged: false,
+      previewDate:  s.date,
+      previewStart: s.startTime,
+      previewEnd:   s.endTime,
+    }
+    setDragPreview({
+      scheduleId: s.id, type,
+      previewDate: s.date, previewStart: s.startTime, previewEnd: s.endTime,
+    })
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
-      <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: minW }}>
+      <div ref={outerRef} style={{ overflowX: 'auto', userSelect: dragPreview ? 'none' : undefined }}>
+        <div ref={innerRef} style={{ minWidth: minW }}>
           {/* 시간 헤더 */}
           <div style={{ display: 'flex', borderBottom: '1px solid #e7e5e4',
                         backgroundColor: '#fafaf9', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -548,6 +678,12 @@ function WeekGridView({
             const evts    = byDate.get(dateStr) ?? []
             const isSun   = idx === 6
             const isSat   = idx === 5
+
+            const ghost = (dragPreview?.type === 'move'
+              && dragPreview.previewDate === dateStr
+              && dragPreview.previewDate !== schedules.find(s => s.id === dragPreview.scheduleId)?.date)
+              ? dragPreview : null
+            const ghostSchedule = ghost ? schedules.find(s => s.id === ghost.scheduleId) : null
 
             return (
               <div key={dateStr} style={{ display: 'flex', borderBottom: '1px solid #f5f5f4' }}>
@@ -574,9 +710,12 @@ function WeekGridView({
                 {/* 시간 영역 */}
                 <div
                   style={{ flex: 1, minWidth: G_HOURS * T_COL_W, position: 'relative',
-                           height: ROW_H, cursor: isAdmin ? 'pointer' : 'default' }}
+                           height: ROW_H, cursor: dragPreview ? 'grabbing' : isAdmin ? 'pointer' : 'default' }}
                   className={isSun ? 'bg-red-50/20' : isSat ? 'bg-blue-50/20' : 'hover:bg-stone-50/40'}
-                  onClick={() => { if (isAdmin) onCreate(dateStr) }}
+                  onClick={() => {
+                    if (dragEndedRef.current) { dragEndedRef.current = false; return }
+                    if (!dragPreview && isAdmin) onCreate(dateStr)
+                  }}
                 >
                   {/* 수직 시간선 */}
                   {hours.map((_, i) => (
@@ -592,23 +731,43 @@ function WeekGridView({
                     const c     = staffColorMap.get(s.staffId) ?? COLOR_PALETTE[0]
                     const sName = staffs.find(st => st.id === s.staffId)?.name ?? ''
                     const top   = 3 + evtIdx * (EVT_H + 2)
-                    const [sh, sm] = s.startTime.split(':').map(Number)
-                    const [eh, em] = s.endTime.split(':').map(Number)
-                    const durH = (eh + em / 60) - (sh + sm / 60)
+
+                    const isActive    = dragPreview?.scheduleId === s.id
+                    const isCrossDate = isActive && dragPreview!.previewDate !== s.date
+                    const dispStart   = isActive ? dragPreview!.previewStart : s.startTime
+                    const dispEnd     = isActive ? dragPreview!.previewEnd   : s.endTime
+                    const [dsh, dsm]  = dispStart.split(':').map(Number)
+                    const [deh, dem]  = dispEnd.split(':').map(Number)
+                    const durH        = (deh + dem / 60) - (dsh + dsm / 60)
 
                     return (
                       <div
                         key={s.id}
                         style={{
                           position: 'absolute',
-                          left:   evtLeftPct(s.startTime),
-                          width:  evtWidthPct(s.startTime, s.endTime),
+                          left:    isCrossDate ? evtLeftPct(s.startTime) : evtLeftPct(dispStart),
+                          width:   isCrossDate ? evtWidthPct(s.startTime, s.endTime) : evtWidthPct(dispStart, dispEnd),
                           top, height: EVT_H,
-                          cursor: isAdmin ? 'pointer' : 'default',
+                          opacity: isCrossDate ? 0.3 : 1,
+                          cursor:  isAdmin ? 'grab' : 'default',
+                          zIndex:  isActive ? 5 : undefined,
                         }}
-                        onClick={e => { e.stopPropagation(); if (isAdmin) onEdit(s) }}
+                        onMouseDown={e => startDrag(s, 'move', e, idx)}
                         title={`${sName}  ${s.startTime}–${s.endTime}`}
                       >
+                        {/* 왼쪽 resize 핸들 */}
+                        <div
+                          style={{ position: 'absolute', left: 0, top: 0, width: 7, height: '100%',
+                                   cursor: isAdmin ? 'ew-resize' : 'default', zIndex: 2 }}
+                          onMouseDown={e => { e.stopPropagation(); startDrag(s, 'resizeStart', e, idx) }}
+                        />
+                        {/* 오른쪽 resize 핸들 */}
+                        <div
+                          style={{ position: 'absolute', right: 0, top: 0, width: 7, height: '100%',
+                                   cursor: isAdmin ? 'ew-resize' : 'default', zIndex: 2 }}
+                          onMouseDown={e => { e.stopPropagation(); startDrag(s, 'resizeEnd', e, idx) }}
+                        />
+                        {/* 시각적 컨텐츠 */}
                         <div style={{
                           position: 'absolute', left: 0, top: 0, right: 0, bottom: 0,
                           backgroundColor: c.bg, color: c.text,
@@ -616,11 +775,42 @@ function WeekGridView({
                           borderRadius: 2, overflow: 'hidden', pointerEvents: 'none',
                         }} className="text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none">
                           <span>{sName.slice(0, 3)}</span>
-                          {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{s.startTime}–{s.endTime}</span>}
+                          {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{dispStart}–{dispEnd}</span>}
                         </div>
                       </div>
                     )
                   })}
+
+                  {/* 크로스-날짜 이동 ghost */}
+                  {ghost && ghostSchedule && (() => {
+                    const c     = staffColorMap.get(ghostSchedule.staffId) ?? COLOR_PALETTE[0]
+                    const sName = staffs.find(st => st.id === ghostSchedule.staffId)?.name ?? ''
+                    const top   = 3 + evts.length * (EVT_H + 2)
+                    const [gh, gm]  = ghost.previewStart.split(':').map(Number)
+                    const [ge, gem] = ghost.previewEnd.split(':').map(Number)
+                    const durH = (ge + gem / 60) - (gh + gm / 60)
+                    return (
+                      <div
+                        key="ghost"
+                        style={{
+                          position: 'absolute',
+                          left:   evtLeftPct(ghost.previewStart),
+                          width:  evtWidthPct(ghost.previewStart, ghost.previewEnd),
+                          top, height: EVT_H,
+                          backgroundColor: c.bg, color: c.text,
+                          borderLeft: `3px solid ${c.dot}`,
+                          borderRadius: 2, overflow: 'hidden',
+                          opacity: 0.7, pointerEvents: 'none',
+                          outline: `2px dashed ${c.dot}`,
+                          zIndex: 5,
+                        }}
+                        className="text-[9px] font-bold px-1 flex items-center gap-0.5 leading-none"
+                      >
+                        <span>{sName.slice(0, 3)}</span>
+                        {durH >= 1.5 && <span className="opacity-60 font-normal text-[8px]">{ghost.previewStart}–{ghost.previewEnd}</span>}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
             )
@@ -1188,6 +1378,36 @@ export default function SchedulePage() {
       : s))
   }, [isAdmin])
 
+  const handleWeekMove = useCallback(async (
+    id: string, newDate: string, newStart: string, newEnd: string
+  ) => {
+    if (!isAdmin) return
+    const newShiftType   = inferShiftType(newStart)
+    const recorded_hours = timeToHours(newStart, newEnd)
+    await supabase.from('schedules').update({
+      date: newDate, start_time: newStart, end_time: newEnd,
+      shift_type: newShiftType, recorded_hours,
+    }).eq('id', id)
+    setSchedules(prev => prev.map(s => s.id === id
+      ? { ...s, date: newDate, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
+      : s))
+  }, [isAdmin])
+
+  const handleWeekResize = useCallback(async (
+    id: string, _date: string, newStart: string, newEnd: string
+  ) => {
+    if (!isAdmin) return
+    const newShiftType   = inferShiftType(newStart)
+    const recorded_hours = timeToHours(newStart, newEnd)
+    await supabase.from('schedules').update({
+      start_time: newStart, end_time: newEnd,
+      shift_type: newShiftType, recorded_hours,
+    }).eq('id', id)
+    setSchedules(prev => prev.map(s => s.id === id
+      ? { ...s, startTime: newStart, endTime: newEnd, shiftType: newShiftType }
+      : s))
+  }, [isAdmin])
+
   // ── 렌더 ────────────────────────────────────────────────
 
   if (loading) {
@@ -1202,7 +1422,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#FAF8F5] px-6 py-8 select-none">
+    <main className="min-h-screen bg-[#FAF8F5] px-3 py-5 select-none sm:px-6 sm:py-8">
       <div className="mx-auto max-w-6xl">
 
         {/* ── 상단 네비게이션 ── */}
@@ -1388,6 +1608,8 @@ export default function SchedulePage() {
               weekStart={startOfWeek(calDate, { weekStartsOn: 1 })}
               onEdit={onMonthEdit}
               onCreate={onMonthCreate}
+              onMove={handleWeekMove}
+              onResize={handleWeekResize}
               isAdmin={isAdmin}
             />
 
@@ -1479,7 +1701,8 @@ export default function SchedulePage() {
       {showImport && (
         <>
           <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={() => setShowImport(false)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+               onClick={() => setShowImport(false)}>
             <div
               className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
               onClick={e => e.stopPropagation()}
@@ -1559,7 +1782,8 @@ export default function SchedulePage() {
       {showBulkDelete && (
         <>
           <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={() => setShowBulkDelete(false)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+               onClick={() => { setShowBulkDelete(false); setBulkFrom(''); setBulkTo('') }}>
             <div
               className="w-full max-w-sm rounded-2xl bg-white shadow-2xl"
               onClick={e => e.stopPropagation()}
@@ -1630,7 +1854,8 @@ export default function SchedulePage() {
             onClick={() => setModal(null)}
           />
 
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
+               onClick={() => setModal(null)}>
             <div
               className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
               onClick={e => e.stopPropagation()}
