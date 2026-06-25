@@ -27,90 +27,6 @@ interface LocalItem {
 
 type LocalStaff = StaffItem
 
-// ── 기본 오픈 데이터 ──────────────────────────────────────
-
-const OPEN_SEED: { section: string; title: string; description?: string }[] = [
-  { section: '전원 켜기',        title: '조명' },
-  { section: '전원 켜기',        title: '에어컨' },
-  { section: '전원 켜기',        title: 'POS(계산대)' },
-  { section: '전원 켜기',        title: '냉장 쇼케이스' },
-  { section: '전원 켜기',        title: '그라인더' },
-  { section: '전원 켜기',        title: '식기세척기' },
-  { section: '전원 켜기',        title: '음악 틀기' },
-  { section: '매장 정리',        title: '건조된 수건 정리' },
-  { section: '매장 정리',        title: '저울 준비', description: '저울 커버를 씌우고 지정된 위치에 놓기' },
-  { section: '에스프레소 세팅',  title: '스팀 노즐 세척' },
-  { section: '에스프레소 세팅',  title: '원두 5번 정도 버리기' },
-  { section: '에스프레소 세팅',  title: '에스프레소 머신 온수 추출', description: '추출 버튼을 눌러 약 15초간 온수만 추출 (이때 나온 온수로 포터필터 헹구기)' },
-  { section: '에스프레소 세팅',  title: '에스프레소 추출 확인', description: '규정된 추출량과 맛이 나올 때까지 조절하기' },
-  { section: '음료 및 진열 준비', title: '강아지용 물 준비' },
-  { section: '음료 및 진열 준비', title: '물병에 얼음과 물 채우기', description: '아메리카노용 얼음물 준비' },
-  { section: '음료 및 진열 준비', title: '피낭시에 진열', description: '쇼케이스에 물방울이 맺혀 있으면 닦기' },
-  { section: '테라스 정리',      title: '테라스 테이블 및 벤치 쿠션 꺼내기' },
-  { section: '테라스 정리',      title: '테라스 청소하기' },
-  { section: '매장 청소',        title: '테이블 및 의자 오염 여부 확인', description: '더러우면 닦기' },
-  { section: '매장 청소',        title: '바닥 쓸기 및 걸레질', description: '테이블과 의자 아래부터 시작' },
-  { section: '화장실 점검',      title: '화장실 상태 확인' },
-  { section: '화장실 점검',      title: '화장지 보충 확인' },
-  { section: '화장실 점검',      title: '핸드타월 보충 확인' },
-  { section: '비품 및 재고 확인', title: '테이크아웃 컵 보충 확인' },
-  { section: '비품 및 재고 확인', title: '빨대 보충 확인' },
-  { section: '비품 및 재고 확인', title: '냅킨 보충 확인' },
-  { section: '비품 및 재고 확인', title: '기타 부족한 비품 확인 및 보충' },
-  { section: '기타',             title: '오픈 시간에 맞춰 커튼 열기', description: '커튼을 연 후 벌레나 벌레 사체가 있는지 확인하고, 있으면 닦아내기' },
-  { section: '기타',             title: '노트북 영상 틀기' },
-]
-
-// ── 기본 마감 데이터 ──────────────────────────────────────
-
-const CLOSE_SEED: { section: string; title: string; description?: string }[] = [
-  // 에스프레소 머신 정리
-  { section: '에스프레소 머신 정리', title: '약품 세척 3회 실시', description: '15분 간격으로 진행' },
-  { section: '에스프레소 머신 정리', title: '자동 세척 후 포터필터 그대로 15분 두기' },
-  { section: '에스프레소 머신 정리', title: '2차 세척 후 그룹 헤드 브러시 청소', description: '가운데 추출 버튼으로 온수를 추출하면서 브러시로 청소' },
-  { section: '에스프레소 머신 정리', title: '20:30 — 그룹 헤드 한쪽 약품 세척 시작' },
-  { section: '에스프레소 머신 정리', title: '21:30 — 나머지 그룹 헤드 약품 세척 시작', description: '세척 전 트레이를 세척하고 머신을 닦은 후 다시 장착하기' },
-  { section: '에스프레소 머신 정리', title: '머신 주변 오염 및 물기 닦기' },
-  { section: '에스프레소 머신 정리', title: '추출용 포터필터 세척 후 머신 위에 올려두기' },
-  { section: '에스프레소 머신 정리', title: '스팀 노즐을 약품에 깊게 담가 보관' },
-  // 기기 및 기물 정리·세척
-  { section: '기기 및 기물 세척',   title: 'bar 내 기물 전부 세척 후 제자리에' },
-  { section: '기기 및 기물 세척',   title: '저울 커버 세척 후 저울 오염 제거 및 충전' },
-  { section: '기기 및 기물 세척',   title: '그라인더 전원 OFF 후 주변 정리' },
-  { section: '기기 및 기물 세척',   title: '트레이 및 기물 세척 후 제자리에' },
-  { section: '기기 및 기물 세척',   title: '원두 가루 남지 않도록 청소' },
-  { section: '기기 및 기물 세척',   title: '탬퍼 원두 가루 닦기' },
-  { section: '기기 및 기물 세척',   title: '행주 세척', description: '세척통에 세제와 온수를 넣고 행주 담그기 → 약 15분 후 손세탁 및 헹구기' },
-  { section: '기기 및 기물 세척',   title: '밀크 포머 세척 후 지정 위치에 정리', description: '우유가 남아있으면 밀크 피처에 옮긴 후 랩으로 덮어 냉장 보관' },
-  { section: '기기 및 기물 세척',   title: '바 카운터 싱크대 세척' },
-  { section: '기기 및 기물 세척',   title: '피낭시에 진열대 정리' },
-  { section: '기기 및 기물 세척',   title: '레지 옆 쇼케이스 조명 끄기' },
-  { section: '기기 및 기물 세척',   title: 'POS 화면 끄기' },
-  { section: '기기 및 기물 세척',   title: '컴퓨터 화면 완전히 닫기', description: '전원은 끄지 않기' },
-  // 쓰레기 정리 및 청소
-  { section: '쓰레기 정리 및 청소', title: '쓰레기 정리 및 배출' },
-  { section: '쓰레기 정리 및 청소', title: '쓰레기통 비닐 교체' },
-  { section: '쓰레기 정리 및 청소', title: '넉박스 정리' },
-  { section: '쓰레기 정리 및 청소', title: '테이블 정리' },
-  { section: '쓰레기 정리 및 청소', title: '테라스 테이블 및 벤치 쿠션 실내로 들여놓기' },
-  { section: '쓰레기 정리 및 청소', title: '화장실 쓰레기 정리 및 비닐 교체' },
-  { section: '쓰레기 정리 및 청소', title: '반려견 배변 쓰레기 처리' },
-  // 주방 청소
-  { section: '주방 청소',           title: '식기세척기 전원 OFF 후 세척 버튼 2회 실행' },
-  { section: '주방 청소',           title: '싱크대 세척', description: '주방 물 사용을 모두 마친 후 진행' },
-  { section: '주방 청소',           title: '유지방 분해제를 배수구에 붓기' },
-  // 최종 점검
-  { section: '최종 점검',           title: '음악 OFF' },
-  { section: '최종 점검',           title: '모든 조명 소등 여부 확인' },
-  { section: '최종 점검',           title: '냉난방기 전원 OFF' },
-  { section: '최종 점검',           title: '냉장고 문 닫힘 여부 확인' },
-  { section: '최종 점검',           title: '주방 냉장고 문 열림 여부 확인' },
-  { section: '최종 점검',           title: '커튼 닫기' },
-  // 기타
-  { section: '기타',                title: '비품 보충 여부 확인' },
-  { section: '기타',                title: '음료 재료·원두·디저트 재고 확인 및 보충' },
-]
-
 // ── 날짜 유틸 ─────────────────────────────────────────────
 
 function localDateStr(d = new Date()) {
@@ -152,7 +68,7 @@ export default function ChecklistPage() {
   const [logs,       setLogs]       = useState<Map<string, CompletionInfo>>(new Map())
   const [logDates,   setLogDates]   = useState<Set<string>>(new Set())
   const [loading,    setLoading]    = useState(true)
-  const [seeding,    setSeeding]    = useState(false)
+
   const [dbError,    setDbError]    = useState<string | null>(null)
 
   // ── 뷰 ──────────────────────────────────────────────────
@@ -441,25 +357,6 @@ export default function ChecklistPage() {
       setItems(prev => prev.map(i => i.id === item.id ? { ...item } : i))
     }
     setEditingItem(null)
-  }
-
-  // ── 기본 데이터 시딩 ─────────────────────────────────────
-  async function seedItems(tab: ChecklistTab, seedData: typeof OPEN_SEED) {
-    setSeeding(true)
-    const rows = seedData.map((item, i) => ({
-      tab,
-      section: item.section,
-      title: item.title,
-      description: item.description ?? null,
-      order: (i + 1) * 10,
-      is_active: true,
-      start_date: today,
-      image_url: null,
-    }))
-    const { data, error } = await supabase.from('checklists').insert(rows).select()
-    if (error) { alert(`불러오기 실패: ${error.message}`); setSeeding(false); return }
-    if (data) setItems(prev => [...prev, ...(data as LocalItem[])])
-    setSeeding(false)
   }
 
   // ── 직원 편집 ────────────────────────────────────────────
@@ -758,24 +655,9 @@ export default function ChecklistPage() {
         </div>
 
         {editMode && (
-          <div className="mt-4 flex flex-col gap-2">
-            <button onClick={() => setEditingItem('new')} className="w-full rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 py-4 text-sm font-semibold text-amber-600 hover:bg-amber-50 active:scale-[0.99]">
-              + 항목 추가
-            </button>
-            <button
-              onClick={() => {
-                const existing = items.filter(i => i.tab === activeTab)
-                if (existing.length > 0) {
-                  if (!window.confirm(`이미 ${existing.length}개의 항목이 있습니다. 기본 데이터를 추가할까요?`)) return
-                }
-                seedItems(activeTab, activeTab === '오픈' ? OPEN_SEED : CLOSE_SEED)
-              }}
-              disabled={seeding}
-              className="w-full rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 py-4 text-sm font-semibold text-stone-500 hover:bg-stone-100 active:scale-[0.99] disabled:opacity-40"
-            >
-              {seeding ? '불러오는 중...' : `${activeTab} 기본 업무 불러오기`}
-            </button>
-          </div>
+          <button onClick={() => setEditingItem('new')} className="mt-4 w-full rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/50 py-4 text-sm font-semibold text-amber-600 hover:bg-amber-50 active:scale-[0.99]">
+            + 항목 추가
+          </button>
         )}
 
         <div className="h-8" />
