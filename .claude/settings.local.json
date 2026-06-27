@@ -12,7 +12,19 @@
       "Bash(git remote *)",
       "Bash(git push *)",
       "Bash(npm run *)",
-      "Bash(npm i *)"
+      "Bash(npm i *)",
+      "Bash(vercel ls *)",
+      "Bash(gh run *)",
+      "PowerShell(git checkout *)",
+      "Bash(python3 *)",
+      "Skill(run)",
+      "PowerShell(Get-Content *)",
+      "Bash(timeout 8 tail -f \"C:\\\\Users\\\\BOOT_AHN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--0CLAUDE-fgmn\\\\b35f61a2-f959-48d7-86b0-893b293e66df\\\\tasks\\\\br5b31wdj.output\")",
+      "Bash(powershell *)"
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash 'D:/0CLAUDE/fgmn/.claude/statusline-command.sh'"
   }
 }

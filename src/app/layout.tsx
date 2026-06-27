@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FGMN 카페 운영",
-  description: "FGMN 카페 운영 프로그램",
+  title: "FGMN 으쌰으쌰",
+  description: "FGMN 업무,시간표",
 };
 
 export default function RootLayout({
